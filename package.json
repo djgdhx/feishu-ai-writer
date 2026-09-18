@@ -1,0 +1,11 @@
+{
+  "name": "feishu-ai-writer",
+  "version": "1.0.0",
+  "description": "让 Claude / Codex / ChatGPT / Grok 直接读写飞书云文档与画板的技能包 + Cloudflare Worker",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "gen": "node scripts/gen-skills.mjs",
+    "test": "node test/test-smoke.mjs"
+  }
+}

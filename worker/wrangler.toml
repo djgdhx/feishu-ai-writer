@@ -1,0 +1,22 @@
+name = "ai-feishu-writer"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# ============================================================
+# 密钥不要写在这个文件里！用 wrangler secret put 逐一设置：
+#   npx wrangler secret put FEISHU_APP_ID      飞书自建应用 App ID（必填）
+#   npx wrangler secret put FEISHU_APP_SECRET  飞书自建应用 App Secret（必填）
+#   npx wrangler secret put API_KEY            调用鉴权密钥（强烈建议设置）
+#
+# 可选：
+#   FEISHU_BASE_URL   默认 https://open.feishu.cn（Lark 国际版改成 https://open.larksuite.com）
+#   DOC_URL_PREFIX    返回链接前缀，默认 https://feishu.cn/docx/
+# ============================================================
+
+# KV：存放用户 OAuth 授权 token（user_access_token / refresh_token）
+# 先执行 npx wrangler kv namespace create FEISHU_USER_TOKEN
+# 再把返回的 id 粘贴到下面
+[[kv_namespaces]]
+binding = "FEISHU_USER_TOKEN"
+id = "把 wrangler kv namespace create 返回的 id 粘贴到这里"

@@ -1,0 +1,31 @@
+{
+  "scopes": {
+    "tenant": [
+      "docx:document",
+      "docx:document:create",
+      "docx:document:write_only",
+      "docx:document.block:convert",
+      "drive:drive",
+      "drive:file:upload",
+      "search:docs:read",
+      "board:whiteboard:node:read",
+      "board:whiteboard:node:create",
+      "board:whiteboard:node:update",
+      "board:whiteboard:node:delete"
+    ],
+    "user": [
+      "offline_access",
+      "docx:document",
+      "docx:document:create",
+      "docx:document:write_only",
+      "docx:document.block:convert",
+      "drive:drive",
+      "drive:file:upload",
+      "search:docs:read",
+      "board:whiteboard:node:read",
+      "board:whiteboard:node:create",
+      "board:whiteboard:node:update",
+      "board:whiteboard:node:delete"
+    ]
+  }
+}

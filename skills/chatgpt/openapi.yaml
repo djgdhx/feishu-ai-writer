@@ -1,0 +1,178 @@
+# ChatGPT GPTs Actions — OpenAPI 规范
+# 用途：飞书在线文档写入/读取/搜索/列出，以及画板创建/更新/读取。
+# 配置方法见同目录 instructions.md
+openapi: 3.0.0
+info:
+  title: AI 对话写入飞书
+  description: 把内容写入飞书在线文档（新建/追加/替换/删除/读取），按名字搜索或列出云盘文档，以及创建/更新/读取文档内画板（Mermaid/PlantUML/SVG）
+  version: 1.2.0
+servers:
+  - url: {{WORKER_URL}}
+paths:
+  /:
+    post:
+      operationId: writeToFeishu
+      summary: 操作飞书文档或画板
+      description: |
+        根据 action 执行：
+        - create / append / replace / delete / read：文档写入或读取
+        - search：按名字或关键词查找当前用户可见的云文档（没给链接、只给了文档名时必须先 search）
+        - list：列出云盘根目录或指定文件夹下的文件
+        - board_create / board_update / board_read：在文档中创建、更新或读取画板
+        document_id 可以是纯 ID 或完整飞书文档链接。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - create
+                    - append
+                    - replace
+                    - delete
+                    - read
+                    - search
+                    - list
+                    - board_create
+                    - board_update
+                    - board_read
+                    - insert_after
+                    - delete_range
+                  description: create=新建文档；append=追加；replace=替换全文；delete=删除文档；read=读取正文；search=按名字搜索；list=列出云盘文件；board_create=创建画板；board_update=更新画板；board_read=读取画板；insert_after=插到指定位置下方；delete_range=删除指定段或节
+                format:
+                  type: string
+                  enum:
+                    - markdown
+                    - html
+                    - mermaid
+                    - plantuml
+                    - svg
+                    - raw
+                  description: 文档写入用 markdown/html；画板写入用 mermaid/plantuml/svg/raw
+                content:
+                  type: string
+                  description: 文档正文或画板源码（delete/read/search/list/board_read 不需要；board_create 可省略）
+                title:
+                  type: string
+                  description: 新建文档标题（create，或 board_create 未指定 document_id 时）
+                document_id:
+                  type: string
+                  description: 文档 ID 或完整链接
+                query:
+                  type: string
+                  description: search 的文档名/关键词，最长 30 字；可空表示浏览
+                only_title:
+                  type: boolean
+                  description: search 是否只搜标题，按文档名查找时为 true
+                doc_types:
+                  type: string
+                  description: 逗号分隔类型，如 docx,sheet,bitable,wiki
+                folder_token:
+                  type: string
+                  description: list/search 限定的文件夹 token；空为根目录
+                page_size:
+                  type: integer
+                  description: 分页大小
+                page_token:
+                  type: string
+                  description: 下一页标记
+                recursive:
+                  type: boolean
+                  description: list 是否有限递归子文件夹
+                whiteboard_id:
+                  type: string
+                  description: 画板 token
+                overwrite:
+                  type: boolean
+                  description: board_update 是否先清空再写，默认 true
+                width:
+                  type: integer
+                  description: board_create 画板宽度，默认 800
+                height:
+                  type: integer
+                  description: board_create 画板高度，默认 450
+                after:
+                  type: string
+                  description: insert_after 的锚点原文（标题或段落）；找不到则拒绝写入，不会改成文末追加
+                target:
+                  type: string
+                  description: delete_range 要删除的标题或段落原文；找不到则拒绝删除
+                block_id:
+                  type: string
+                  description: 已知块 ID 时直接定位（insert_after / delete_range）
+                after_block_id:
+                  type: string
+                  description: insert_after 的锚点块 ID
+                occurrence:
+                  type: integer
+                  description: 原文出现多次时取第几处（从 1 起）
+                mode:
+                  type: string
+                  enum:
+                    - block
+                    - section
+                    - auto
+                  description: delete_range 删除范围。block=只删这一块；section=从标题删到下一同级标题前；auto=标题按节、段落按块
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  action:
+                    type: string
+                  document_id:
+                    type: string
+                  whiteboard_id:
+                    type: string
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                    description: read 时返回的 Markdown 正文
+                  items:
+                    type: array
+                    description: search/list 结果
+                    items:
+                      type: object
+                  nodes:
+                    type: array
+                    description: board_read 的画板节点
+                  message:
+                    type: string
+        "400":
+          description: 参数错误或业务失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+        "500":
+          description: 服务异常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
