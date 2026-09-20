@@ -1,7 +1,7 @@
 {
   "name": "feishu-ai-writer",
   "version": "1.0.0",
-  "description": "让 AI 助手直接读写飞书云文档与画板的技能包 + Cloudflare Worker",
+  "description": "给网页端 AI 装个技能，一句话把对话总结写进你的飞书云文档",
   "license": "MIT",
   "type": "module",
   "scripts": {
