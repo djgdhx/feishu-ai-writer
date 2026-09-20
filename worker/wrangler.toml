@@ -9,9 +9,13 @@ workers_dev = true
 #   npx wrangler secret put FEISHU_APP_SECRET  飞书自建应用 App Secret（必填）
 #   npx wrangler secret put API_KEY            调用鉴权密钥（强烈建议设置）
 #
+# 强烈建议也设（否则返回的文档链接点不开）：
+#   npx wrangler secret put DOC_URL_PREFIX
+#   值为你自己租户的域名前缀，例如 https://abc123xyz.feishu.cn/docx/
+#   （打开任意一篇自己的飞书文档，看地址栏取前半截）
+#
 # 可选：
 #   FEISHU_BASE_URL   默认 https://open.feishu.cn（Lark 国际版改成 https://open.larksuite.com）
-#   DOC_URL_PREFIX    返回链接前缀，默认 https://feishu.cn/docx/
 # ============================================================
 
 # KV：存放用户 OAuth 授权 token（user_access_token / refresh_token）

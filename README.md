@@ -45,20 +45,39 @@ npm install
 
 npx wrangler login
 
-# 创建 KV，把返回的 id 填进 wrangler.toml
+# 创建 KV，把输出里的 id 粘进 wrangler.toml 的 kv_namespaces.id
 npx wrangler kv namespace create FEISHU_USER_TOKEN
 
-# 写入密钥（逐条执行，按提示粘贴）
-npx wrangler secret put FEISHU_APP_ID
-npx wrangler secret put FEISHU_APP_SECRET
-npx wrangler secret put API_KEY        # 自己生成一串随机字符串，见下方安全说明
-
+# 先部署一次，把 Worker 创建出来（此时还没密钥，调用会报错，正常）
 npx wrangler deploy
 ```
 
-部署成功会输出你的 Worker 地址，形如 `https://ai-feishu-writer.你的子域.workers.dev`。
+部署成功会输出你的 Worker 地址，形如 `https://ai-feishu-writer.你的子域.workers.dev`。**记下它，后面好几步都要用。**
 
-回到飞书后台，把 `https://你的Worker域名/auth/callback` 填进 **安全设置 → 重定向 URL**，然后浏览器打开 `https://你的Worker域名/auth/start` 完成授权。访问 `/auth/status` 确认 `authorized: true`。
+```bash
+# 再写入密钥（逐条执行，按提示粘贴后回车）
+npx wrangler secret put FEISHU_APP_ID
+npx wrangler secret put FEISHU_APP_SECRET
+npx wrangler secret put API_KEY        # 自己生成一串随机字符串，见下方安全说明
+npx wrangler secret put DOC_URL_PREFIX # 见下面「让返回的链接能点开」
+```
+
+> 顺序别调换：`wrangler secret put` 要求 Worker 已经存在，先部署再写密钥最顺。密钥写完即时生效，不用再 deploy 一次。
+
+#### 让返回的链接能点开（容易踩的坑）
+
+接口返回的文档链接默认拼成 `https://feishu.cn/docx/<id>`，这个地址**打不开**。要换成你自己租户的域名：随便打开一篇你的飞书文档，看浏览器地址栏，形如 `https://abc123xyz.feishu.cn/docx/xxxxx`，取前半截设进去：
+
+```bash
+npx wrangler secret put DOC_URL_PREFIX
+# 输入：https://abc123xyz.feishu.cn/docx/
+```
+
+不设也能用，只是每次返回的链接要自己手动改域名才能打开。
+
+#### 完成授权
+
+回到飞书后台，把 `https://你的Worker域名/auth/callback` 填进 **安全设置 → 重定向 URL**（末尾不要斜杠），然后浏览器打开 `https://你的Worker域名/auth/start` 完成授权。访问 `/auth/status` 确认 `authorized: true`。
 
 ### 3. 生成你的技能文件
 
@@ -161,6 +180,10 @@ curl -X POST "https://你的Worker域名/" \
 **`99991672`** — 应用权限不足，或文档没分享给应用。
 
 **HTTP 401** — `x-api-key` 和 Worker 里设的对不上。
+
+**返回的文档链接点不开** — 没设 `DOC_URL_PREFIX`，默认的 `https://feishu.cn/docx/` 打不开。设成你自己租户的域名，见上面「让返回的链接能点开」。
+
+**`wrangler secret put` 报找不到 Worker** — 先 `npx wrangler deploy` 把 Worker 创建出来，再写密钥。
 
 **`npm install` 报 `ECONNREFUSED 127.0.0.1:10808`** — npm 配了代理但代理软件没开。打开代理，或 `npm install --proxy= --https-proxy=`。
 
