@@ -6,6 +6,8 @@ import worker from '../worker/worker.js';
 
 // ---- 记录飞书 API 调用 ----
 const calls = [];
+let failRefresh = false;
+let throwRefresh = false;
 const tableBlockWithMergeInfo = {
   block_id: 'b_table',
   block_type: 31,
@@ -263,6 +265,10 @@ globalThis.fetch = async (url, init = {}) => {
   if (delFile && method === 'DELETE') {
     return json({ code: 0, data: {} });
   }
+  // 协作者权限 mock（兜底给用户加可管理）
+  if (u.includes('/open-apis/drive/v1/permissions/') && u.includes('/members') && method === 'POST') {
+    return json({ code: 0, data: { member: { member_id: body && body.member_id, perm: body && body.perm } } });
+  }
   // ---- OAuth mock ----
   if (u.endsWith('/open-apis/auth/v3/app_access_token/internal')) {
     return json({ code: 0, app_access_token: 'app_tok_1', expire: 7200 });
@@ -271,7 +277,9 @@ globalThis.fetch = async (url, init = {}) => {
     return json({ code: 0, data: { access_token: 'user_tok_1', refresh_token: 'refresh_1', expires_in: 7200, refresh_token_expires_in: 2592000, scope: 'docx:document docx:document.block:convert drive:drive' } });
   }
   if (u.includes('/open-apis/authen/v1/oidc/refresh_access_token')) {
-    return json({ code: 0, data: { access_token: 'user_tok_2', refresh_token: 'refresh_2', expires_in: 7200 } });
+    if (throwRefresh) throw new Error('network unavailable');
+    if (failRefresh) return json({ code: 99991663, msg: 'refresh failed' }, 401);
+    return json({ code: 0, data: { access_token: 'user_tok_2', refresh_token: 'refresh_2', expires_in: 7200, refresh_token_expires_in: 2592000 } });
   }
   return json({ code: 999999, msg: 'unexpected url ' + u }, 400);
 };
@@ -290,7 +298,11 @@ function makeKV(store) {
 }
 
 // 模拟 Worker 运行时对象（带 KV）
-const kvStore = {};
+const kvStore = { user_token: JSON.stringify({
+  access_token: 'user_tok_1', refresh_token: 'refresh_1',
+  expires_at: Math.floor(Date.now() / 1000) + 7200,
+  refresh_expires_at: Math.floor(Date.now() / 1000) + 2592000,
+}) };
 const env = { FEISHU_APP_ID: 'app', FEISHU_APP_SECRET: 'secret', FEISHU_USER_TOKEN: makeKV(kvStore) };
 
 function makeRequest(method, url, { headers = {}, body } = {}) {
@@ -356,15 +368,13 @@ console.log('5) 参数校验：action 非法 / content 为空');
   check('空 content 报错', (await r2.json()).success === false);
 }
 
-console.log('6) token 缓存：未命中拉取一次，命中后复用');
+console.log('6) 文档调用只使用用户身份');
 {
-  // 清空进程内缓存，验证"首次拉取 + 后续复用"
-  globalThis.__fsToken = undefined;
   calls.length = 0;
   await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', content: 'x' } }), env);
   await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', content: 'y' } }), env);
-  const tokenCalls = calls.filter((c) => c.u.includes('tenant_access_token'));
-  check('两次调用只请求一次 token（命中缓存）', tokenCalls.length === 1);
+  check('没有获取应用文档令牌', !calls.some((c) => c.u.includes('tenant_access_token')));
+  check('内容转换使用用户令牌', calls.filter((c) => c.u.includes('/blocks/convert')).every((c) => c.headers.Authorization === 'Bearer user_tok_1'));
 }
 
 console.log('7) CORS：OPTIONS 预检返回 204 与跨域头');
@@ -389,6 +399,7 @@ console.log('8) document_id 支持直接传完整链接（无需手动提取）'
 
 console.log('9) OAuth：授权后 create 使用用户身份，文档落用户云盘');
 {
+  delete kvStore['user_token'];
   // 授权前状态
   const s0 = await worker.fetch(new Request('https://test/auth/status'), env);
   const d0 = await s0.json();
@@ -411,6 +422,8 @@ console.log('9) OAuth：授权后 create 使用用户身份，文档落用户云
   check('create 返回 identity=user', d3.success === true && d3.identity === 'user');
   const createCall = calls.find((c) => c.u.endsWith('/open-apis/docx/v1/documents') && c.method === 'POST');
   check('创建请求使用用户 token', createCall && createCall.headers && createCall.headers.Authorization === 'Bearer user_tok_1');
+  const noKvCallback = await worker.fetch(new Request('https://test/auth/callback?code=no_kv'), { ...env, FEISHU_USER_TOKEN: undefined });
+  check('缺少用户令牌存储时不能谎报授权成功', noKvCallback.status === 500);
 }
 
 console.log('10) OAuth：refresh_token 过期后自动刷新');
@@ -429,16 +442,95 @@ console.log('10) OAuth：refresh_token 过期后自动刷新');
   check('调用过刷新接口', calls.some((c) => c.u.includes('refresh_access_token')));
   const createCall = calls.find((c) => c.u.endsWith('/open-apis/docx/v1/documents') && c.method === 'POST');
   check('使用刷新后的新 token', createCall && createCall.headers && createCall.headers.Authorization === 'Bearer user_tok_2');
+  check('刷新令牌有效期随刷新结果更新', JSON.parse(kvStore['user_token']).refresh_expires_at > Math.floor(Date.now() / 1000) + 2500000);
   // 还原
   delete kvStore['user_token'];
 }
 
-console.log('11) OAuth：未授权时回退应用身份');
+console.log('11) 用户授权失效：严格模式拒绝，兜底模式用应用身份并给用户可管理');
 {
   delete kvStore['user_token'];
-  const r = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', content: '# x' } }), env);
+  const envStrict = { ...env, ALLOW_APP_FALLBACK: 'false' };
+
+  // ---- 严格模式（ALLOW_APP_FALLBACK=false）：直接拒绝，一字不写 ----
+  calls.length = 0;
+  const r = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', content: '# x' } }), envStrict);
   const d = await r.json();
-  check('未授权 create 返回 identity=tenant', d.success === true && d.identity === 'tenant');
+  check('严格模式：未授权 create 返回 401 和授权地址', r.status === 401 && d.code === 'USER_AUTH_REQUIRED' && d.auth_url === 'https://test/auth/start');
+  check('严格模式：未授权时不调用文档接口', calls.length === 0);
+
+  const protectedActions = [
+    { action: 'append', document_id: 'doc_exist', content: 'x' },
+    { action: 'replace', document_id: 'doc_exist', content: 'x' },
+    { action: 'delete', document_id: 'doc_exist' },
+    { action: 'read', document_id: 'doc_exist' },
+    { action: 'search', query: '测试' },
+    { action: 'list' },
+    { action: 'board_create', document_id: 'doc_exist', format: 'mermaid', content: 'graph TD; A-->B;' },
+    { action: 'board_update', whiteboard_id: 'wb_token_1', format: 'mermaid', content: 'graph TD; A-->B;' },
+    { action: 'board_read', whiteboard_id: 'wb_token_1' },
+    { action: 'insert_after', document_id: 'doc_exist', after: '标题', content: 'x' },
+    { action: 'delete_range', document_id: 'doc_exist', target: '标题' },
+  ];
+  for (const body of protectedActions) {
+    calls.length = 0;
+    const response = await worker.fetch(makeRequest('POST', 'https://test/', { body }), envStrict);
+    const result = await response.json();
+    check(`严格模式：未授权 ${body.action} 拒绝且不调用飞书`, response.status === 401 && result.code === 'USER_AUTH_REQUIRED' && result.auth_url === 'https://test/auth/start' && calls.length === 0);
+  }
+
+  kvStore['user_token'] = JSON.stringify({ access_token: 'expired', refresh_token: 'expired', expires_at: 1, refresh_expires_at: 1 });
+  calls.length = 0;
+  const expired = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'append', document_id: 'doc_exist', content: 'x' } }), envStrict);
+  check('严格模式：刷新授权过期时拒绝追加', expired.status === 401 && (await expired.json()).code === 'USER_AUTH_REQUIRED');
+  check('严格模式：刷新授权过期时不调用文档接口', calls.length === 0);
+
+  kvStore['user_token'] = JSON.stringify({ access_token: 'expired', refresh_token: 'bad', expires_at: 1, refresh_expires_at: Math.floor(Date.now() / 1000) + 300 });
+  failRefresh = true;
+  calls.length = 0;
+  const failed = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'board_create', title: '画板' } }), envStrict);
+  check('严格模式：刷新失败时拒绝新建画板', failed.status === 401 && (await failed.json()).code === 'USER_AUTH_REQUIRED');
+  check('严格模式：刷新失败时没有调用文档接口', !calls.some((c) => c.u.includes('/docx/') || c.u.includes('/board/')));
+  failRefresh = false;
+  throwRefresh = true;
+  calls.length = 0;
+  const offline = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', content: 'x' } }), envStrict);
+  check('严格模式：刷新网络异常时仍返回重新授权提示', offline.status === 401 && (await offline.json()).code === 'USER_AUTH_REQUIRED');
+  check('严格模式：刷新网络异常时不创建文档', !calls.some((c) => c.u.includes('/docx/')));
+  throwRefresh = false;
+  delete kvStore['user_token'];
+
+  // ---- 兜底模式（默认开启）：用应用身份，但必须给用户可管理并明确标记身份 ----
+  calls.length = 0;
+  const fb = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', title: '兜底', content: '正文' } }), env);
+  const fbd = await fb.json();
+  check('兜底：create 仍然成功（服务不掉线）', fb.status === 200 && fbd.success === true);
+  check('兜底：响应标记 identity=app 且 fallback=true', fbd.identity === 'app' && fbd.fallback === true);
+  check('兜底：响应给出重新授权地址', fbd.auth_url === 'https://test/auth/start');
+  check('兜底：自动给用户加可管理（permission_granted）', fbd.permission_granted === true && typeof fbd.identity_warning === 'string');
+  const fbCreate = calls.find((c) => c.method === 'POST' && c.u.endsWith('/open-apis/docx/v1/documents'));
+  check('兜底：创建文档使用应用令牌', !!fbCreate && fbCreate.headers.Authorization === 'Bearer t_123');
+  const grant = calls.find((c) => c.method === 'POST' && c.u.includes('/open-apis/drive/v1/permissions/'));
+  check('兜底：把 OWNER_OPEN_ID 加成 full_access', !!grant && grant.body.perm === 'full_access' && grant.body.member_id === 'ou_e9c4837f3984a02f28efae559baa9824' && grant.body.member_type === 'openid');
+
+  calls.length = 0;
+  const fbRead = await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'read', document_id: 'doc_exist' } }), env);
+  const fbrd = await fbRead.json();
+  check('兜底：其他动作同样标记应用身份并给出授权地址', fbrd.success === true && fbrd.identity === 'app' && fbrd.fallback === true && typeof fbrd.auth_url === 'string');
+
+  calls.length = 0;
+  const envOwner = { ...env, OWNER_OPEN_ID: 'ou_custom_owner' };
+  await worker.fetch(makeRequest('POST', 'https://test/', { body: { action: 'create', title: 'X', content: 'y' } }), envOwner);
+  const grantCustom = calls.find((c) => c.method === 'POST' && c.u.includes('/open-apis/drive/v1/permissions/'));
+  check('兜底：OWNER_OPEN_ID 可覆盖默认值', !!grantCustom && grantCustom.body.member_id === 'ou_custom_owner');
+
+  // 状态接口要能看出兜底开没开
+  kvStore['user_token'] = JSON.stringify({ access_token: 'user_tok_1', refresh_token: 'refresh_1', expires_at: Math.floor(Date.now() / 1000) + 7200, refresh_expires_at: Math.floor(Date.now() / 1000) + 2592000 });
+  const st = await worker.fetch(new Request('https://test/auth/status'), env).then((x) => x.json());
+  check('状态接口显示兜底已开启', st.app_fallback_enabled === true);
+  const stStrict = await worker.fetch(new Request('https://test/auth/status'), envStrict).then((x) => x.json());
+  check('状态接口显示严格模式已关闭兜底', stStrict.app_fallback_enabled === false);
+  delete kvStore['user_token'];
 }
 
 console.log('12) OAuth：/auth/reset 清除授权');
@@ -447,7 +539,11 @@ console.log('12) OAuth：/auth/reset 清除授权');
   await worker.fetch(new Request('https://test/auth/callback?code=reset_test'), env);
   const before = await worker.fetch(new Request('https://test/auth/status'), env).then((r) => r.json());
   check('reset 前已授权', before.authorized === true);
-  const rr = await worker.fetch(new Request('https://test/auth/reset'), env);
+  const unsafeGet = await worker.fetch(new Request('https://test/auth/reset'), { ...env, API_KEY: 'k1' });
+  check('GET 不能清除授权', unsafeGet.status === 405 && (await worker.fetch(new Request('https://test/auth/status'), env).then((x) => x.json())).authorized === true);
+  const unauthorizedPost = await worker.fetch(new Request('https://test/auth/reset', { method: 'POST' }), { ...env, API_KEY: 'k1' });
+  check('未带密钥的 POST 不能清除授权', unauthorizedPost.status === 401 && (await worker.fetch(new Request('https://test/auth/status'), env).then((x) => x.json())).authorized === true);
+  const rr = await worker.fetch(makeRequest('POST', 'https://test/auth/reset', { headers: { 'x-api-key': 'k1' } }), { ...env, API_KEY: 'k1' });
   const dr = await rr.json();
   check('reset 返回成功', dr.success === true);
   const after = await worker.fetch(new Request('https://test/auth/status'), env).then((r) => r.json());

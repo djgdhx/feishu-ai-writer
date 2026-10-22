@@ -28,7 +28,7 @@ GPTs 的 Actions 用 OpenAPI 规范描述接口，让 ChatGPT 学会调用。本
 - 流程图/架构图/时序图/画板：board_create，format=mermaid（复杂自定义图用 svg）；更新已有画板用 board_update；只看画板用 board_read
 - 用户说「插到某某下面」「删这一段/这一节」时，必须用 insert_after 或 delete_range 并带上 after/target；找不到锚点就如实告知，禁止改成 append 到文末或 replace 整篇覆盖
 - 成功后展示 url；search/list 展示标题+链接；read 展示正文
-- 失败时把 message 原样转达。缺权限时提醒：开放平台加权限并发布后访问 /auth/reset 再 /auth/start
+- 成功时看 identity：`user`=用本人身份；`app`=用户授权已失效、本次由应用身份兜底，要把 auth_url 给用户并说明文档归属仍是应用。若返回 USER_AUTH_REQUIRED（兜底已关闭），同样展示 auth_url；不得擅自改用其他工具写入。权限范围变化时先发布应用版本，再访问 /auth/start 重新授权
 ```
 
 ### 3. 配置 Action（核心步骤）

@@ -11,7 +11,8 @@
       "board:whiteboard:node:read",
       "board:whiteboard:node:create",
       "board:whiteboard:node:update",
-      "board:whiteboard:node:delete"
+      "board:whiteboard:node:delete",
+      "docs:permission.member:create"
     ],
     "user": [
       "offline_access",
@@ -25,7 +26,8 @@
       "board:whiteboard:node:read",
       "board:whiteboard:node:create",
       "board:whiteboard:node:update",
-      "board:whiteboard:node:delete"
+      "board:whiteboard:node:delete",
+      "docs:permission.member:create"
     ]
   }
 }

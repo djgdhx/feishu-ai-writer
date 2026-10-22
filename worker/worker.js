@@ -24,7 +24,7 @@
  *                 具体整数值需在飞书真机校准（详见代码内注释）。
  *
  * 底层使用飞书官方服务端 Open API（与本地 CLI 相同）：
- *   - POST /open-apis/auth/v3/tenant_access_token/internal   获取 tenant_access_token
+ *   - POST /open-apis/auth/v3/app_access_token/internal      仅用于用户 OAuth 换取/刷新令牌
  *   - POST /open-apis/docx/v1/documents                      创建文档
  *   - POST /open-apis/docx/v1/documents/blocks/convert       Markdown 转文档块
  *   - POST /open-apis/docx/v1/documents/{id}/blocks/{id}/children         创建嵌套块
@@ -40,12 +40,18 @@
  * KV 绑定：
  *   FEISHU_USER_TOKEN 存储用户 OAuth 授权（user_access_token / refresh_token），必填
  *
- * 用户授权（可选但推荐）：
+ * 身份策略（混合模式）：
+ *   1) 优先用户身份：create 的新文档直接落在用户云盘，天然可编辑；
+ *   2) 用户授权失效时（默认）改用应用身份兜底：文档归应用，但立即把 OWNER_OPEN_ID
+ *      指定的用户加成 full_access（可管理），并在响应里返回 identity=app / fallback=true / auth_url；
+ *      绝不"悄悄换身份"——换了一定看得见。
+ *   3) 环境变量 ALLOW_APP_FALLBACK=false 可关闭兜底，改为直接返回 401 USER_AUTH_REQUIRED。
+ *
+ * 授权相关端点：
  *   - GET /auth/start    跳转飞书授权页
  *   - GET /auth/callback 授权回调，保存 token
- *   - GET /auth/status   查看授权状态
- *   授权后，create 创建的文档直接落在用户云盘根目录（而非应用空间）；
- *   append/replace 对用户自己的文档无需再分享给应用。
+ *   - GET /auth/status   查看授权状态（含 fallback 开关与 scope 检查）
+ *   - POST /auth/reset   清除授权（必须带 x-api-key）
  */
 
 // ==================== 常量 ====================
@@ -61,6 +67,22 @@ const MAX_CONTENT_LENGTH = 100000;
 
 // Token 提前 5 分钟过期，避免边界失效
 const TOKEN_EXPIRE_MARGIN_SECONDS = 300;
+
+// ---- 兜底身份（应用身份）配置 ----
+// 用户授权失效时是否允许应用身份代写。设环境变量 ALLOW_APP_FALLBACK=false 可关闭兜底（关闭后直接拒绝）。
+// 兜底时会把 OWNER_OPEN_ID 指定的用户加成 full_access（可管理），并在响应里标记 identity=app。
+// 教训：兜底本身没错，错在"悄悄换身份 + 不补权限"，会造出用户只能读、不能改的文档。
+const DEFAULT_OWNER_OPEN_ID = 'ou_e9c4837f3984a02f28efae559baa9824';
+
+function appFallbackEnabled(env) {
+  const raw = env && env.ALLOW_APP_FALLBACK !== undefined ? String(env.ALLOW_APP_FALLBACK) : 'true';
+  const v = raw.toLowerCase();
+  return v !== 'false' && v !== '0' && v !== 'off' && v !== 'no';
+}
+
+function configuredOwnerOpenId(env) {
+  return (env && env.OWNER_OPEN_ID) || DEFAULT_OWNER_OPEN_ID;
+}
 
 // 表格块类型（转换结果中的表格必须清理 merge_info 字段，否则写入报错）
 const BLOCK_TYPE_TABLE = 31;
@@ -104,6 +126,7 @@ export default {
           board: 'action=board_create / board_update / board_read 操作文档内画板（Mermaid/PlantUML/SVG）',
           precise: 'insert_after 插到锚点下方；delete_range 删除指定段/节。必须提供 after/target 或 block_id。找不到锚点不会改文档，也不会改成 append/replace',
           auth: 'GET /auth/status 查看授权，GET /auth/start 开始授权',
+          identity: '优先用户身份；用户授权失效时默认用应用身份兜底（响应带 identity=app / fallback=true / auth_url，并自动把 OWNER_OPEN_ID 加成可管理）；设 ALLOW_APP_FALLBACK=false 可关闭兜底',
         });
       }
 
@@ -118,7 +141,13 @@ export default {
       if (request.method === 'GET' && url.pathname === '/auth/status') {
         return json(await getAuthStatus(env));
       }
-      if (request.method === 'GET' && url.pathname === '/auth/reset') {
+      if (url.pathname === '/auth/reset') {
+        if (request.method !== 'POST') {
+          return json({ success: false, message: '清除授权只接受带 x-api-key 的 POST 请求' }, 405);
+        }
+        if (!env.API_KEY || request.headers.get('x-api-key') !== env.API_KEY) {
+          return json({ success: false, message: 'x-api-key 无效' }, 401);
+        }
         if (env.FEISHU_USER_TOKEN) {
           await env.FEISHU_USER_TOKEN.delete(KV_USER_TOKEN).catch(() => {});
         }
@@ -143,9 +172,17 @@ export default {
       }
 
       const result = await handleWrite(env, body || {});
-      return json(result, result.success ? 200 : 400);
+      // 兜底身份必须让调用方看得见：标记 fallback 并给出重新授权地址
+      if (result.success && result.identity === 'app' && !result.fallback) {
+        result.fallback = true;
+        result.fallback_reason = '飞书用户授权已失效，本次由应用身份执行';
+      }
+      if (result.code === 'USER_AUTH_REQUIRED' || result.fallback) {
+        result.auth_url = `${url.origin}/auth/start`;
+      }
+      return json(result, result.success ? 200 : result.code === 'USER_AUTH_REQUIRED' ? 401 : 400);
     } catch (err) {
-      // 把飞书接口的原始错误码透出，方便排查（最常见：权限不足/文档未分享给应用）
+      // 把飞书接口的原始错误码透出，方便排查权限或文档归属问题。
       return json({ success: false, message: `服务异常：${err.message || err}` }, 500);
     }
   },
@@ -219,19 +256,33 @@ async function handleWrite(env, body = {}) {
     return { success: false, message: 'board_read 必须提供 whiteboard_id 或 document_id' };
   }
 
-  // ---- 身份选择：优先用户授权身份（文档落用户云盘），否则回退应用身份 ----
-  // 注意：blocks/convert 接口在 user 身份下需要额外的用户授权权限（scope 常为空导致失败），
-  // 因此 convert 统一用应用身份（tenant token，convert 权限已就绪）；
-  // 创建/写入/删除文档用用户身份（文档落用户云盘、写用户自己的文档）。
+  // ---- 身份选择：优先用户身份；用户授权失效时按配置用应用身份兜底 ----
+  // 兜底绝不"悄悄换身份"：响应里必须带 identity=app、fallback=true、auth_url。
   const userToken = await getValidUserAccessToken(env);
-  const tenantToken = await getTenantAccessToken(env);
-  const identity = userToken ? 'user' : 'tenant';
-  const docToken = userToken || tenantToken; // 创建/写入用
-  const convertToken = tenantToken;          // 转换用（应用身份）
+  let identity = 'user';
+  let docToken = userToken;
+  let convertToken = userToken;
+  let fallback = false;
+  let tenantToken = null;
+
+  if (!userToken) {
+    if (!appFallbackEnabled(env)) {
+      return {
+        success: false,
+        code: 'USER_AUTH_REQUIRED',
+        message: '飞书用户授权缺失或已失效，且应用身份兜底已关闭（ALLOW_APP_FALLBACK=false）。请访问 auth_url 完成授权后重试；本次没有读取或修改任何文档。',
+      };
+    }
+    tenantToken = await getTenantAccessToken(env);
+    identity = 'app';
+    docToken = tenantToken;
+    convertToken = tenantToken;
+    fallback = true;
+  }
 
   // ---- 搜索 / 列出文档 ----
   if (action === 'search') {
-    return await handleSearch(env, docToken, userToken, {
+    return await handleSearch(env, docToken, {
       query, page_size, page_token, only_title, doc_types, include_wiki, folder_token, identity,
     });
   }
@@ -304,9 +355,14 @@ async function handleWrite(env, body = {}) {
 
   // ---- 新建文档（仅 create）----
   let documentId = document_id;
+  let grantResult = null;
   if (action === 'create') {
     const doc = await createDocument(env, docToken, title);
     documentId = doc.document_id;
+    // 兜底时文档归应用所有：立刻给用户加"可管理"，否则又会变成只能读、不能改
+    if (fallback) {
+      grantResult = await grantOwnerPermission(env, docToken, documentId);
+    }
   }
 
   // ---- 替换前先清空全文 ----
@@ -328,7 +384,7 @@ async function handleWrite(env, body = {}) {
   const url = `${env.DOC_URL_PREFIX || 'https://feishu.cn/docx/'}${documentId}`;
 
   const actionText = action === 'create' ? '已创建并写入' : action === 'append' ? '已追加到' : '已替换';
-  return {
+  const result = {
     success: true,
     action,
     document_id: documentId,
@@ -337,6 +393,16 @@ async function handleWrite(env, body = {}) {
     identity,
     message: `${actionText}文档「${title || documentId}」`,
   };
+  if (fallback) {
+    const granted = !!(grantResult && grantResult.ok);
+    result.fallback = true;
+    result.fallback_reason = '飞书用户授权已失效，本次由应用身份代建';
+    result.permission_granted = granted;
+    result.identity_warning = granted
+      ? '本次用应用身份创建，已把你加成「可管理」；建议尽快重新授权，之后新建的文档才会直接归你本人所有'
+      : `本次用应用身份创建，但自动授权给用户失败（${grantResult ? grantResult.error : '未知原因'}），你可能只能读不能改；请立即重新授权后处理`;
+  }
+  return result;
 }
 
 // ==================== 飞书 API 封装 ====================
@@ -454,8 +520,13 @@ async function handleAuthCallback(env, requestUrl) {
     refresh_expires_at: nowSec + (data.data.refresh_token_expires_in || 2592000),
     scope: data.data.scope || '',
   };
-  if (env.FEISHU_USER_TOKEN) {
-    await env.FEISHU_USER_TOKEN.put(KV_USER_TOKEN, JSON.stringify(tokenInfo)).catch(() => {});
+  if (!env.FEISHU_USER_TOKEN) {
+    return htmlResponse('授权未保存：Worker 缺少 FEISHU_USER_TOKEN 存储绑定。', 500);
+  }
+  try {
+    await env.FEISHU_USER_TOKEN.put(KV_USER_TOKEN, JSON.stringify(tokenInfo));
+  } catch {
+    return htmlResponse('授权未保存：令牌存储失败，请检查 FEISHU_USER_TOKEN 绑定后重新授权。', 500);
   }
 
   return htmlResponse(
@@ -466,7 +537,7 @@ async function handleAuthCallback(env, requestUrl) {
 
 /**
  * 获取有效的 user_access_token；过期时自动用 refresh_token 刷新
- * 未授权或刷新失败时返回 null（调用方回退应用身份）
+ * 未授权或刷新失败时返回 null（调用方停止文档操作）
  */
 async function getValidUserAccessToken(env) {
   if (!env.FEISHU_USER_TOKEN) return null;
@@ -487,19 +558,24 @@ async function getValidUserAccessToken(env) {
 
   // 刷新（同样需要请求头带 app_access_token）
   const base = env.FEISHU_BASE_URL || FEISHU_DEFAULT_BASE;
-  const appToken = await getAppAccessToken(env);
-  const resp = await fetch(`${base}/open-apis/authen/v1/oidc/refresh_access_token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      Authorization: `Bearer ${appToken}`,
-    },
-    body: JSON.stringify({
-      grant_type: 'refresh_token',
-      refresh_token: raw.refresh_token,
-    }),
-  });
-  const data = await resp.json().catch(() => ({}));
+  let data;
+  try {
+    const appToken = await getAppAccessToken(env);
+    const resp = await fetch(`${base}/open-apis/authen/v1/oidc/refresh_access_token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Authorization: `Bearer ${appToken}`,
+      },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: raw.refresh_token,
+      }),
+    });
+    data = await resp.json().catch(() => ({}));
+  } catch {
+    return null;
+  }
   if (data.code !== 0 || !data.data || !data.data.access_token) {
     return null; // 刷新失败，需要重新授权
   }
@@ -509,8 +585,15 @@ async function getValidUserAccessToken(env) {
     access_token: data.data.access_token,
     refresh_token: data.data.refresh_token || raw.refresh_token,
     expires_at: Math.floor(Date.now() / 1000) + (data.data.expires_in || 7200),
+    refresh_expires_at: data.data.refresh_token_expires_in
+      ? Math.floor(Date.now() / 1000) + data.data.refresh_token_expires_in
+      : raw.refresh_expires_at,
   };
-  await env.FEISHU_USER_TOKEN.put(KV_USER_TOKEN, JSON.stringify(refreshed)).catch(() => {});
+  try {
+    await env.FEISHU_USER_TOKEN.put(KV_USER_TOKEN, JSON.stringify(refreshed));
+  } catch {
+    return null;
+  }
   return refreshed.access_token;
 }
 
@@ -530,7 +613,9 @@ async function getAuthStatus(env) {
   const scopes = raw.scope ? raw.scope.split(' ') : [];
   return {
     success: true,
-    authorized: true,
+    authorized: valid || (!!raw.refresh_token && raw.refresh_expires_at > nowSec),
+    app_fallback_enabled: appFallbackEnabled(env),
+    owner_open_id_configured: !!configuredOwnerOpenId(env),
     token_valid: valid,
     token_expires_at: new Date(raw.expires_at * 1000).toISOString(),
     refresh_expires_at: new Date((raw.refresh_expires_at || 0) * 1000).toISOString(),
@@ -540,7 +625,9 @@ async function getAuthStatus(env) {
     has_board_scope: scopes.includes('board:whiteboard:node:read') || scopes.includes('board:whiteboard:node:create'),
     scope_count: scopes.length,
     scope_preview: scopes.slice(0, 30).join(' '),
-    hint: valid ? '身份有效' : 'access_token 已过期，将在下次写入时自动刷新',
+    hint: valid ? '身份有效' : raw.refresh_token && raw.refresh_expires_at > nowSec
+      ? '访问令牌已过期，将在下次操作时自动刷新'
+      : '用户授权已失效，请访问 /auth/start 重新授权',
   };
 }
 
@@ -553,60 +640,8 @@ function htmlResponse(content, status = 200) {
 }
 
 /**
- * 获取 tenant_access_token（带缓存与自动刷新）
- * 优先使用 KV 实现跨实例共享；无 KV 时退回进程内缓存（单实例场景足够）
- */
-async function getTenantAccessToken(env) {
-  if (!env.FEISHU_APP_ID || !env.FEISHU_APP_SECRET) {
-    throw new Error('缺少环境变量 FEISHU_APP_ID / FEISHU_APP_SECRET，请先通过 wrangler secret put 配置');
-  }
-  const nowSec = Math.floor(Date.now() / 1000);
-
-  // 1) KV 缓存（可选绑定）
-  if (env.FEISHU_TOKEN_KV) {
-    const cached = await env.FEISHU_TOKEN_KV.get('tenant_access_token', 'json').catch(() => null);
-    if (cached && cached.expiresAt > nowSec + TOKEN_EXPIRE_MARGIN_SECONDS) {
-      return cached.token;
-    }
-    const fresh = await requestToken(env);
-    await env.FEISHU_TOKEN_KV
-      .put('tenant_access_token', JSON.stringify({ token: fresh.token, expiresAt: fresh.expiresAt }), {
-        expirationTtl: fresh.expire - TOKEN_EXPIRE_MARGIN_SECONDS,
-      })
-      .catch(() => {});
-    return fresh.token;
-  }
-
-  // 2) 进程内缓存
-  if (globalThis.__fsToken && globalThis.__fsToken.expiresAt > nowSec + TOKEN_EXPIRE_MARGIN_SECONDS) {
-    return globalThis.__fsToken.token;
-  }
-  const fresh = await requestToken(env);
-  globalThis.__fsToken = { token: fresh.token, expiresAt: fresh.expiresAt };
-  return fresh.token;
-}
-
-async function requestToken(env) {
-  const base = env.FEISHU_BASE_URL || FEISHU_DEFAULT_BASE;
-  const resp = await fetch(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ app_id: env.FEISHU_APP_ID, app_secret: env.FEISHU_APP_SECRET }),
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (data.code !== 0 || !data.tenant_access_token) {
-    throw new Error(`获取 tenant_access_token 失败：code=${data.code} msg=${data.msg}`);
-  }
-  return {
-    token: data.tenant_access_token,
-    expire: data.expire || 7200,
-    expiresAt: Math.floor(Date.now() / 1000) + (data.expire || 7200),
-  };
-}
-
-/**
  * 获取 app_access_token（OAuth 换 user token 时，请求头需要用 app_access_token）
- * app_access_token 与 tenant_access_token 都是应用身份，但 OIDC 接口要求 app_access_token
+ * 此应用令牌仅供 OIDC 换取或刷新用户令牌，不用于文档、搜索、云盘或画板接口。
  */
 let __appTokenCache = null;
 async function getAppAccessToken(env) {
@@ -632,6 +667,85 @@ async function getAppAccessToken(env) {
     expiresAt: nowSec + (data.expire || 7200),
   };
   return __appTokenCache.token;
+}
+
+/**
+ * 获取 tenant_access_token（应用身份），仅在用户授权失效、启用兜底时使用。
+ * 正常流程（用户已授权）完全不走这里。
+ */
+async function getTenantAccessToken(env) {
+  if (!env.FEISHU_APP_ID || !env.FEISHU_APP_SECRET) {
+    throw new Error('缺少环境变量 FEISHU_APP_ID / FEISHU_APP_SECRET');
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // 有 KV 时跨实例共享缓存，否则用进程内缓存
+  if (env.FEISHU_TOKEN_KV) {
+    const cached = await env.FEISHU_TOKEN_KV.get('tenant_access_token', 'json').catch(() => null);
+    if (cached && cached.expiresAt > nowSec + TOKEN_EXPIRE_MARGIN_SECONDS) {
+      return cached.token;
+    }
+    const fresh = await requestTenantToken(env);
+    await env.FEISHU_TOKEN_KV
+      .put('tenant_access_token', JSON.stringify({ token: fresh.token, expiresAt: fresh.expiresAt }), {
+        expirationTtl: Math.max(60, fresh.expire - TOKEN_EXPIRE_MARGIN_SECONDS),
+      })
+      .catch(() => {});
+    return fresh.token;
+  }
+
+  if (globalThis.__fsTenantToken && globalThis.__fsTenantToken.expiresAt > nowSec + TOKEN_EXPIRE_MARGIN_SECONDS) {
+    return globalThis.__fsTenantToken.token;
+  }
+  const fresh = await requestTenantToken(env);
+  globalThis.__fsTenantToken = { token: fresh.token, expiresAt: fresh.expiresAt };
+  return fresh.token;
+}
+
+async function requestTenantToken(env) {
+  const base = env.FEISHU_BASE_URL || FEISHU_DEFAULT_BASE;
+  const resp = await fetch(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ app_id: env.FEISHU_APP_ID, app_secret: env.FEISHU_APP_SECRET }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (data.code !== 0 || !data.tenant_access_token) {
+    throw new Error(`获取 tenant_access_token 失败：code=${data.code} msg=${data.msg}`);
+  }
+  return {
+    token: data.tenant_access_token,
+    expire: data.expire || 7200,
+    expiresAt: Math.floor(Date.now() / 1000) + (data.expire || 7200),
+  };
+}
+
+/**
+ * 兜底时把 OWNER_OPEN_ID 指定的用户加成 full_access（可管理）。
+ * 目的：即使文档归应用所有，用户也能改、能管、能挪，不再出现"只能读"。
+ * 失败返回 { ok:false, error }，由调用方在响应里如实告知。
+ */
+async function grantOwnerPermission(env, token, documentId) {
+  const memberId = configuredOwnerOpenId(env);
+  if (!memberId) return { ok: false, error: 'OWNER_OPEN_ID 未配置' };
+  const path = `/open-apis/drive/v1/permissions/${documentId}/members?type=docx&need_notification=false`;
+  const payload = { member_type: 'openid', member_id: memberId, perm: 'full_access', type: 'user' };
+
+  const attempt = async () =>
+    feishuFetch(env, path, { method: 'POST', body: payload, token });
+
+  try {
+    await attempt();
+    return { ok: true };
+  } catch (first) {
+    // 网络抖动重试一次；仍失败就如实上报
+    try {
+      await attempt();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: first.message || String(first) };
+    }
+  }
 }
 
 /**
@@ -788,14 +902,14 @@ async function searchSuiteFallback(env, token, { query, pageSize }) {
   };
 }
 
-async function handleSearch(env, docToken, userToken, opts) {
+async function handleSearch(env, userToken, opts) {
   const query = clipQuery(opts.query);
   const pageSize = Math.max(1, Math.min(20, Number(opts.page_size) || 15));
   const pageToken = opts.page_token || '';
   const onlyTitle = opts.only_title === undefined ? true : !!opts.only_title;
   const docTypes = parseDocTypes(opts.doc_types);
   const includeWiki = opts.folder_token ? false : (opts.include_wiki === undefined ? true : !!opts.include_wiki);
-  const token = userToken || docToken;
+  const token = userToken;
   const identity = opts.identity;
 
   const merged = [];
@@ -1454,7 +1568,7 @@ async function hydrateAndPatchImages(env, token, documentId, blocks, html) {
 /**
  * 下载远程图片字节并上传到飞书，返回 file_token；失败返回 null。
  * multipart 字段：file_name / parent_type='docx_image' / parent_node=该块 id / file(bytes)。
- * 使用的 <token> 与写入文档的身份一致（文档落用户云盘时用用户身份，否则应用身份）。
+ * 使用的 <token> 与文档写入身份一致，始终是用户令牌。
  */
 async function uploadMedia(env, token, url, parentType, parentNode) {
   const base = env.FEISHU_BASE_URL || FEISHU_DEFAULT_BASE;

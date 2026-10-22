@@ -20,6 +20,7 @@ paths:
         - list：列出云盘根目录或指定文件夹下的文件
         - board_create / board_update / board_read：在文档中创建、更新或读取画板
         document_id 可以是纯 ID 或完整飞书文档链接。
+        所有操作都要求飞书用户授权，绝不会回退到应用身份。若返回 USER_AUTH_REQUIRED，应停止操作并向用户展示 auth_url。
       requestBody:
         required: true
         content:
@@ -129,6 +130,19 @@ paths:
                 properties:
                   success:
                     type: boolean
+                  identity:
+                    type: string
+                    enum: [user, app]
+                    description: user=本人身份（文档落在你的云盘）；app=用户授权失效时的兜底身份（文档归应用，已自动把用户加成可管理）
+                  fallback:
+                    type: boolean
+                    description: identity=app 时为 true，表示本次由应用身份兜底完成
+                  permission_granted:
+                    type: boolean
+                    description: 兜底时是否已成功把用户加成「可管理」
+                  auth_url:
+                    type: string
+                    description: 重新授权地址；授权失效或走兜底时返回
                   action:
                     type: string
                   document_id:
@@ -150,6 +164,23 @@ paths:
                   nodes:
                     type: array
                     description: board_read 的画板节点
+                  message:
+                    type: string
+        "401":
+          description: 调用密钥错误；或飞书用户授权缺失/过期且应用身份兜底已关闭（返回 USER_AUTH_REQUIRED + auth_url，不会写入文档）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  code:
+                    type: string
+                    example: USER_AUTH_REQUIRED
+                  auth_url:
+                    type: string
                   message:
                     type: string
         "400":

@@ -10,7 +10,7 @@
 
 ## 2. 批量导入权限
 
-这一步是**关键**，漏权限会直接报错。
+这一步是**关键**，漏权限会直接报错。导入清单同时包含两类权限：**用户身份权限**用于正常写入；**应用身份（tenant）权限**只在「用户授权失效、走应用身份兜底」时使用，其中 `docs:permission.member:create` 是兜底后把你加成可管理所必需的。若现有飞书应用还服务于其他工具，请先核对它们所需权限，不要据此清单撤销已有权限。
 
 打开应用 → **开发配置 → 权限管理 → 批量导入/导出权限 → 导入**，把 [`permissions.json`](./permissions.json) 的全部内容粘进去 → **申请开通**（已有的会自动跳过）。
 
@@ -68,7 +68,9 @@ https://你的Worker域名/auth/start
 
 > `scope_preview` 只显示前 30 个权限名，里面看不到 search/board **不代表**没开，以 `has_*_scope` 为准。
 
-不授权也能用，但走的是**应用身份**，文档会落在应用空间而不是你的云盘。
+用户授权是首选身份。授权缺失或失效时，默认改用应用身份兜底：文档归应用，但会立即把 `OWNER_OPEN_ID` 指定的用户加成「可管理」，响应里带 `identity=app`、`fallback=true`、`permission_granted` 和 `auth_url`。设 `ALLOW_APP_FALLBACK=false` 可关闭兜底，改为返回 `USER_AUTH_REQUIRED` 并拒绝写入。
+
+> 授权周期：访问令牌 2 小时（自动续期），刷新令牌 30 天；**连续 30 天不用才会失效**。
 
 ## 6. 授权相关接口
 
@@ -77,14 +79,16 @@ https://你的Worker域名/auth/start
 | `/auth/start` | 跳转飞书授权页 |
 | `/auth/callback` | 授权回调（自动，无需手动访问） |
 | `/auth/status` | 查看授权状态 + scope 检查 |
-| `/auth/reset` | 清除授权 |
+| `POST /auth/reset` | 清除授权，必须带有效 `x-api-key`；GET 不会清除 |
 
-**改过权限后必须先 `/auth/reset` 再 `/auth/start`**，否则拿到的还是旧 scope 的 token。
+**改过权限后发布应用版本，再访问 `/auth/start` 重新授权**。正常重新授权无需先清除旧令牌。
 
 ## 常见错误码
 
 | 错误码 | 原因 | 处理 |
 |---|---|---|
 | `99991672` | 应用权限不足，或文档没分享给应用 | 补权限 → 发布版本 |
-| `99991679` | 用户授权缺权限（最常见是少了 `docx:document.block:convert`） | 补权限 → 发布版本 → `/auth/reset` → `/auth/start` |
+| `99991679` | 用户授权缺权限（最常见是少了 `docx:document.block:convert`） | 补权限 → 发布版本 → `/auth/start` |
+| HTTP 401 + `USER_AUTH_REQUIRED` | 飞书用户授权缺失/过期，且兜底已关闭（`ALLOW_APP_FALLBACK=false`） | 打开响应中的 `auth_url`，完成授权后再操作；本次没有写入 |
+| 响应 `identity: "app"` | 用户授权已过期，本次由应用身份兜底建文档 | 文档归应用、已自动把 `OWNER_OPEN_ID` 加成可管理；建议尽快重新授权 |
 | HTTP 401 | `x-api-key` 缺失或错误 | 检查技能里的 key 和 `wrangler secret put API_KEY` 设的是否一致 |

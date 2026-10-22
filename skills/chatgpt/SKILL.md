@@ -47,6 +47,17 @@ description: 调用 HTTP API 操作飞书在线文档与画板：新建/追加/�
 - `overwrite`：`board_update` 是否先清空再写，默认 true
 - `width` / `height`：`board_create` 画板尺寸，默认 800×450
 
+## 身份原则
+
+默认使用飞书用户身份：成功响应里 `identity` 为 `user`，文档落在用户自己的云盘。
+
+用户授权失效时，服务端可能改用应用身份兜底，响应会带 `identity=app` 和 `fallback=true`，`permission_granted` 表示是否已把用户加成「可管理」。遇到 `identity=app` 时：
+- 文档所有者是应用，不是用户本人；
+- 必须把响应里的 `auth_url` 交给用户，请他重新授权，之后新建的文档才会归他本人；
+- 不得擅自改用飞书 CLI 或其他写入工具重试。
+
+若返回 `code=USER_AUTH_REQUIRED`（说明服务端关闭了兜底），把 `auth_url` 交给用户，等他授权后再重试。
+
 ## 使用规则
 
 1. 用户**只给了文档名字、没给链接**（「追加到《周报》」「读一下方案文档」）→ 先 `action=search`，`query` 用文档名，`only_title=true`。
@@ -61,7 +72,7 @@ description: 调用 HTTP API 操作飞书在线文档与画板：新建/追加/�
 7. 用户要流程图、架构图、时序图、组织图、画板 → `board_create`（无文档则自动新建一篇），`format=mermaid`（思维导图/时序/流程图优先 Mermaid；复杂自定义图用 `svg`）
 8. 更新已有画板 → `board_update`；只看画板 → `board_read`（可只传文档链接，接口会列出文档内画板）
 9. 调用成功后展示 `url`；`search`/`list` 展示标题+链接；`read` 展示正文；`board_read` 说明节点数量
-10. 失败时把 `message` 原样转达。若提示缺权限/授权，告诉用户：飞书开放平台加权限并发布版本后，打开 `{{WORKER_URL}}/auth/reset` 再打开 `{{WORKER_URL}}/auth/start` 重新授权
+10. 失败时把 `message` 原样转达。`code=USER_AUTH_REQUIRED` 表示用户授权缺失或失效且兜底已关闭，向用户提供响应中的 `auth_url`；若响应出现 `identity=app`，说明本次由应用身份代建，要把 `auth_url` 交给用户并说明文档归属仍是应用。权限范围变化时先发布飞书应用版本，再访问该地址重新授权。不要访问旧的 GET `/auth/reset` 链接。
 11. 用户说「插到某某下面 / 写到那个位置 / 删这一段 / 删这一节」→ 必须用 `insert_after` 或 `delete_range`，带上 `after`/`target`（或 `block_id`）。**禁止**因为插不准就 `append` 到文末，**禁止**因为插不准就 `replace` 整篇覆盖。找不到锚点就把 `message` 原样告诉用户，停止写入。
 
 ## 调用示例
@@ -158,8 +169,8 @@ curl -X POST "{{WORKER_URL}}/" \
 
 ## 错误处理
 
-- HTTP 401：`x-api-key` 缺失或错误
+- HTTP 401：可能是 `x-api-key` 缺失或错误；若响应 `code=USER_AUTH_REQUIRED`，则是飞书用户授权失效且兜底关闭，按 `auth_url` 重新授权；`identity=app` 表示本次由应用身份兜底代写
 - `99991672`：权限不足/文档未分享给应用
-- `99991679`：用户授权缺权限——权限变更后必须访问 `{{WORKER_URL}}/auth/reset` 再 `/auth/start`
+- `99991679`：用户授权缺权限——发布应用版本后访问 `{{WORKER_URL}}/auth/start` 重新授权
 - `content` 超 100000 字符：精简或分段 append
 - `search` 的 `query` 超过 30 字会被截断，只传核心文档名

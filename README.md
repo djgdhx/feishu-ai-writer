@@ -131,7 +131,7 @@ npx wrangler secret put DOC_URL_PREFIX
 https://你的Worker域名/auth/start
 ```
 
-同意授权后访问 `/auth/status`，看到 `"authorized": true` 就成了。
+同意授权后访问 `/auth/status`，确认 `"authorized": true`。用户授权会过期：访问令牌 2 小时（自动续），刷新令牌 30 天，**连续 30 天不用才会掉**。授权失效时默认改用应用身份兜底（响应带 `identity=app`、`fallback=true`，并自动把 `OWNER_OPEN_ID` 加成可管理）；设 `ALLOW_APP_FALLBACK=false` 则改为直接返回 `USER_AUTH_REQUIRED`。
 
 ### 3️⃣ 生成你的技能文件
 
@@ -202,7 +202,7 @@ feishu-ai-writer/
 │   ├── feishu-setup.md      飞书应用配置全流程 + 错误码表
 │   └── permissions.json     权限批量导入 JSON
 ├── test/
-│   └── test-smoke.mjs       冒烟测试（mock 飞书，不真调）96 个断言
+│   └── test-smoke.mjs       冒烟测试（模拟飞书接口，不真调）129 个断言
 └── .env.example
 ```
 
@@ -236,7 +236,7 @@ curl -X POST "https://你的Worker域名/" \
 }
 ```
 
-`identity` 为 `user` 表示用你本人身份（文档落你云盘），`tenant` 表示未授权、回退到应用身份。
+成功响应的 `identity` 有两种：`user` 表示用你本人身份（文档归你）；`app` 表示用户授权已失效、本次由应用身份兜底，此时响应还会带 `fallback: true`、`permission_granted` 和 `auth_url`，`permission_granted: true` 说明已自动把你加成「可管理」。设 `ALLOW_APP_FALLBACK=false` 关闭兜底后，授权失效会返回 HTTP 401、`code: "USER_AUTH_REQUIRED"` 和 `auth_url`，不会写入任何文档。
 
 </details>
 
@@ -248,7 +248,7 @@ curl -X POST "https://你的Worker域名/" \
 |:---|:---|
 | `/auth/start` | 跳转飞书授权页 |
 | `/auth/status` | 查看授权状态 + 权限检查 |
-| `/auth/reset` | 清除授权（改过权限后必须先跑这个） |
+| `POST /auth/reset` | 带 `x-api-key` 才能清除授权；GET 不能清除，正常重新授权无需调用 |
 
 ---
 
@@ -259,7 +259,7 @@ curl -X POST "https://你的Worker域名/" \
 
 <br>
 
-最常见是少了 `docx:document.block:convert`。飞书后台补权限 → **发布版本** → 访问 `/auth/reset` → 再 `/auth/start` 重新授权。
+最常见是少了 `docx:document.block:convert`。飞书后台补权限 → **发布版本** → 访问 `/auth/start` 重新授权。
 
 改过权限一定要重新发布版本 + 重新授权，否则拿到的还是旧权限的 token。
 
@@ -270,7 +270,7 @@ curl -X POST "https://你的Worker域名/" \
 
 <br>
 
-应用权限没开全，或者这篇文档没分享给应用。补权限后记得发布版本。
+用户授权的权限范围不足，或者当前用户没有这篇文档的相应权限。核对权限后发布应用版本并重新授权。
 
 </details>
 
