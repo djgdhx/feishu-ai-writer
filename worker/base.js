@@ -141,7 +141,10 @@ export async function handleBaseAction(env, body, deps) {
     if (action === 'base_import_status' || action === 'base_export_status') {
       const ticket = tokenPart(body.ticket, 'ticket');
       const scenario = action === 'base_import_status' ? 'import' : 'export';
-      const response = await api(`/open-apis/drive/v1/${scenario}_tasks/${ticket}`, { token });
+      const taskPath = scenario === 'export'
+        ? `/open-apis/drive/v1/export_tasks/${ticket}${qs({ token: tokenPart(baseToken(body.app_token || ''), 'app_token') })}`
+        : `/open-apis/drive/v1/import_tasks/${ticket}`;
+      const response = await api(taskPath, { token });
       const state = response.data?.result || {};
       const fileToken = scenario === 'export' ? state.file_token : state.token;
       const ready = state.job_status === 0 && !!fileToken;
@@ -168,7 +171,7 @@ export async function handleBaseAction(env, body, deps) {
       if (extension === 'csv') payload.sub_id = tokenPart(body.table_id, 'table_id');
       if (body.only_schema) payload.only_schema = true;
       const response = await api('/open-apis/drive/v1/export_tasks', { method: 'POST', body: payload, token });
-      return result(action, identity, { ticket: response.data?.ticket, ready: false, file_extension: extension });
+      return result(action, identity, { ticket: response.data?.ticket, ready: false, app_token: appToken, file_extension: extension });
     }
     if (action === 'base_get') {
       const response = await api(app, { token });

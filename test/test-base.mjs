@@ -29,7 +29,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (address.endsWith('/drive/v1/import_tasks') && method === 'POST') return reply({ ticket: 'ticket123' });
   if (address.endsWith('/drive/v1/import_tasks/ticket123')) return reply({ result: { job_status: 0, token: 'bascn123', url: 'https://feishu.cn/base/bascn123' } });
   if (address.endsWith('/drive/v1/export_tasks') && method === 'POST') return reply({ ticket: 'ticket456' });
-  if (address.endsWith('/drive/v1/export_tasks/ticket456')) return reply({ result: { job_status: 0, file_token: 'file123', file_size: 4 } });
+  if (address.endsWith('/drive/v1/export_tasks/ticket456?token=bascn123')) return reply({ result: { job_status: 0, file_token: 'file123', file_size: 4 } });
   if (address.endsWith('/drive/v1/export_tasks/file/file123/download')) return new Response(new Uint8Array([1, 2, 3, 4]), { headers: { 'content-type': 'application/octet-stream' } });
   if (address.endsWith('/drive/v1/files/bascn123?type=bitable') && method === 'DELETE') return reply({});
   return reply({});
@@ -84,7 +84,7 @@ verify(out.data.ready && out.data.app_token === 'bascn123', '导入结果查询'
 out = await request('base_export', { app_token: 'bascn123', file_extension: 'csv', table_id: 'tbl123' });
 verify(out.data.ticket === 'ticket456', '导出任务创建');
 verify(calls.at(-1).body.sub_id === 'tbl123', 'CSV 导出指定数据表');
-out = await request('base_export_status', { ticket: 'ticket456' });
+out = await request('base_export_status', { ticket: 'ticket456', app_token: 'bascn123' });
 verify(out.data.ready && out.data.file_token === 'file123', '导出结果查询');
 out = await request('base_export_download', { file_token: 'file123' });
 verify(out.data.file_base64 === 'AQIDBA==' && out.data.size === 4, '导出文件可下载');

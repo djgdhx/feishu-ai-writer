@@ -18,7 +18,7 @@
 | 列出或创建视图 | `base_view_list`、`base_view_create` | `app_token`、`table_id`；创建时传 `name` |
 | 列出、筛选、新增、修改记录 | `base_record_list`、`base_record_search`、`base_record_create`、`base_record_update` | `app_token`、`table_id`；筛选用 `filter`，写入用 `fields` |
 | 导入文件 | `base_import`、`base_import_status` | `file_extension`、`file_name`、`file_base64`；查询时传 `ticket` |
-| 导出文件 | `base_export`、`base_export_status`、`base_export_download` | `app_token`、`file_extension`；查询时传 `ticket`，下载时传 `file_token` |
+| 导出文件 | `base_export`、`base_export_status`、`base_export_download` | `app_token`、`file_extension`；查询时同时传 `ticket` 和 `app_token`，下载时传 `file_token` |
 
 `app_token` 可传多维表格链接，也可传链接中的标识。表、字段、视图和记录的返回值保留飞书接口原有字段。创建记录前，先查询实际字段及其类型；日期、人员、附件等字段须按飞书要求填写，不能一律当作普通文字。
 
@@ -50,7 +50,7 @@
 {"action":"base_import","file_extension":"csv","file_name":"customers.csv","name":"客户台账","file_base64":"<文件的 Base64 内容>"}
 ```
 
-导出支持 `xlsx`、`csv`、`base`。CSV 只导出一张数据表，必须传 `table_id`；`.base` 可用 `only_schema:true` 只导出结构。先通过 `base_export` 取得 `ticket`，再用 `base_export_status` 取得完成后的 `file_token`，最后用 `base_export_download` 下载。下载响应的 `file_base64` 需要解码并保存成文件；在线下载上限为 8 MB，较大文件请在飞书网页中导出。
+导出支持 `xlsx`、`csv`、`base`。CSV 只导出一张数据表，必须传 `table_id`；`.base` 可用 `only_schema:true` 只导出结构。先通过 `base_export` 取得 `ticket`，再把 `ticket` 和原 `app_token` 一起传给 `base_export_status`，取得完成后的 `file_token`，最后用 `base_export_download` 下载。下载响应的 `file_base64` 需要解码并保存成文件；在线下载上限为 8 MB，较大文件请在飞书网页中导出。
 
 ```json
 {"action":"base_export","app_token":"bascnxxxxxxxx","file_extension":"csv","table_id":"tblxxxxxxxx"}
