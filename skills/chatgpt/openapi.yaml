@@ -1,26 +1,30 @@
 # ChatGPT GPTs Actions — OpenAPI 规范
-# 用途：飞书在线文档写入/读取/搜索/列出，以及画板创建/更新/读取。
+# 用途：飞书在线文档、画板与多维表格操作。
 # 配置方法见同目录 instructions.md
 openapi: 3.0.0
 info:
   title: AI 对话写入飞书
-  description: 把内容写入飞书在线文档（新建/追加/替换/删除/读取），按名字搜索或列出云盘文档，以及创建/更新/读取文档内画板（Mermaid/PlantUML/SVG）
-  version: 1.2.0
+  description: 创建和查询飞书文档、画板与多维表格，支持多维表格记录筛选及文件导入导出
+  version: 1.3.0
 servers:
   - url: {{WORKER_URL}}
 paths:
   /:
     post:
       operationId: writeToFeishu
-      summary: 操作飞书文档或画板
+      summary: 操作飞书文档、画板或多维表格
       description: |
         根据 action 执行：
         - create / append / replace / delete / read：文档写入或读取
         - search：按名字或关键词查找当前用户可见的云文档（没给链接、只给了文档名时必须先 search）
         - list：列出云盘根目录或指定文件夹下的文件
         - board_create / board_update / board_read：在文档中创建、更新或读取画板
+        - base_create / base_list / base_get / base_delete：创建、查找、查看或删除多维表格
+        - base_table_* / base_field_* / base_view_*：管理数据表、字段和视图
+        - base_record_*：列出、筛选、新增或修改记录
+        - base_import / base_import_status / base_export / base_export_status / base_export_download：文件导入导出
         document_id 可以是纯 ID 或完整飞书文档链接。
-        所有操作都要求飞书用户授权，绝不会回退到应用身份。若返回 USER_AUTH_REQUIRED，应停止操作并向用户展示 auth_url。
+        优先使用飞书用户身份。用户授权失效且服务端允许兜底时，可能返回 identity=app；应展示 auth_url 并告知用户资源归应用所有。若返回 USER_AUTH_REQUIRED，应停止操作并向用户展示 auth_url。
       requestBody:
         required: true
         content:
@@ -45,6 +49,25 @@ paths:
                     - board_read
                     - insert_after
                     - delete_range
+                    - base_create
+                    - base_list
+                    - base_get
+                    - base_delete
+                    - base_table_list
+                    - base_table_create
+                    - base_field_list
+                    - base_field_create
+                    - base_view_list
+                    - base_view_create
+                    - base_record_list
+                    - base_record_search
+                    - base_record_create
+                    - base_record_update
+                    - base_import
+                    - base_import_status
+                    - base_export
+                    - base_export_status
+                    - base_export_download
                   description: create=新建文档；append=追加；replace=替换全文；delete=删除文档；read=读取正文；search=按名字搜索；list=列出云盘文件；board_create=创建画板；board_update=更新画板；board_read=读取画板；insert_after=插到指定位置下方；delete_range=删除指定段或节
                 format:
                   type: string
@@ -76,7 +99,68 @@ paths:
                   description: 逗号分隔类型，如 docx,sheet,bitable,wiki
                 folder_token:
                   type: string
-                  description: list/search 限定的文件夹 token；空为根目录
+                  description: 文件夹标识；base_create 不填时在当前身份的云盘根目录创建
+                with_location:
+                  type: boolean
+                  description: base_list 是否查询云盘位置；无法确认时返回 location_status=unresolved
+                name:
+                  type: string
+                  description: 多维表格、数据表或视图名称
+                app_token:
+                  type: string
+                  description: 多维表格标识或完整链接
+                confirm_app_token:
+                  type: string
+                  description: base_delete 必须与 app_token 完全一致
+                table_id:
+                  type: string
+                  description: 数据表标识；CSV 导出必须填写
+                view_id:
+                  type: string
+                  description: 视图标识，可用于查询记录
+                record_id:
+                  type: string
+                  description: 要修改的记录标识
+                fields:
+                  description: 创建数据表时为字段数组；写记录时为按字段名填写的对象
+                  oneOf:
+                    - type: array
+                      items:
+                        type: object
+                    - type: object
+                      additionalProperties: true
+                field:
+                  type: object
+                  description: 新建字段，如 {"field_name":"客户","type":1}
+                  additionalProperties: true
+                filter:
+                  type: object
+                  description: 按字段筛选记录的条件对象
+                  additionalProperties: true
+                sort:
+                  type: array
+                  description: 记录排序条件
+                  items:
+                    type: object
+                file_extension:
+                  type: string
+                  enum: [xlsx, csv, base]
+                  description: 导入或导出的文件格式
+                file_name:
+                  type: string
+                  description: 导入文件名，后缀须与 file_extension 一致
+                file_base64:
+                  type: string
+                  description: 导入文件内容；导入文件最大 8 MB
+                ticket:
+                  type: string
+                  description: 查询导入或导出任务状态的标识；导出状态还须传原 app_token
+                file_token:
+                  type: string
+                  description: 导出完成后用于下载的文件标识
+                only_schema:
+                  type: boolean
+                  description: 导出 base 格式时是否只导出结构
                 page_size:
                   type: integer
                   description: 分页大小

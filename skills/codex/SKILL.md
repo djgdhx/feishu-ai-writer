@@ -1,15 +1,25 @@
 ---
 name: feishu-doc-writer
-description: 调用 HTTP API 操作飞书在线文档与画板：新建/追加/替换/删除/读取文档，按名字搜索或列出云盘文档，以及创建/更新/读取画板（Mermaid/PlantUML/SVG）。当用户要把内容写入飞书、按文档名查找、列出云盘文件、读取文档，或画流程图/架构图画板时使用。这是工具技能，必须实际发送 HTTP 请求。
+description: 调用 HTTP API 操作飞书在线文档、画板与多维表格。支持创建和查找多维表格、筛选记录、导入导出文件。这是工具技能，必须实际发送 HTTP 请求。
 ---
 
 # 飞书文档写入技能（HTTP 工具）
 
-本技能是一个 **HTTP 工具技能**：当用户要求操作飞书文档或画板时，**必须实际调用下面的接口**，不要只输出说明文字。
+本技能是一个 **HTTP 工具技能**：当用户要求操作飞书文档、画板或多维表格时，**必须实际调用下面的接口**，不要只输出说明文字。
 
 ## 触发场景
 
 用户说「写入飞书」「保存到飞书」「查找飞书文档」「找叫某某的文档」「列出我的飞书文档」「读取这篇文档」「往这篇追加」「画流程图/架构图到飞书画板」「更新画板」「看看画板」等。
+
+用户要求创建、查找、查询飞书多维表格，或导入、导出多维表格文件时，也使用本接口。
+
+## 多维表格操作
+
+同一 `POST /` 接口通过 `action` 调用。创建用 `base_create`（`name`，可选 `folder_token`；不填则在当前身份的云盘根目录），查找用 `base_list`（`query`、`with_location:true`、分页参数），查看用 `base_get`（`app_token`）。列表中的 `location_status=unresolved` 表示位置未确认，不表示文件不存在。
+
+用 `base_table_list/create`、`base_field_list/create`、`base_view_list/create` 管理数据表、字段和视图；用 `base_record_list/search/create/update` 查询和修改记录。记录操作要传 `app_token`、`table_id`；筛选传 `filter` 对象；写入传按字段名组织的 `fields` 对象。写入前应先查字段类型。
+
+导入用 `base_import`，传 `file_extension`（xlsx/csv/base）、`file_name`、`file_base64`，可选 `app_token` 或 `folder_token`；返回 `ticket` 后用 `base_import_status` 查询到 `ready=true`。导出用 `base_export`（`app_token`、`file_extension`；CSV 还需 `table_id`），再用 `base_export_status`（`ticket` 和原 `app_token`），最后用 `base_export_download`（`file_token`）获取 Base64 文件。单次导入与在线下载上限为 8 MB。删除用 `base_delete`，须传完全一致的 `app_token` 和 `confirm_app_token`。完整示例见项目 `docs/base-feature.md`。
 
 ## 接口信息（唯一入口）
 
