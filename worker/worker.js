@@ -1,3 +1,5 @@
+import { BASE_ACTIONS, handleBaseAction } from './base.js';
+
 /**
  * AI 对话总结写入飞书在线文档 — Cloudflare Worker
  * ============================================================
@@ -120,10 +122,11 @@ export default {
         return json({
           success: true,
           service: 'ai-feishu-writer',
-          usage: 'POST /，JSON body: { action: create|append|replace|delete|read|search|list|board_create|board_update|board_read|insert_after|delete_range, ... }',
+          usage: 'POST /，JSON body: { action: create|append|replace|delete|read|search|list|board_create|board_update|board_read|insert_after|delete_range|base_*, ... }',
           read: 'action=read 时传 document_id 即可，接口返回该文档的 Markdown 正文（content 字段）',
           search: 'action=search 按名字/关键词查找文档（query）；action=list 列出云盘文件（folder_token 可空=根目录）',
           board: 'action=board_create / board_update / board_read 操作文档内画板（Mermaid/PlantUML/SVG）',
+          base: 'action=base_create/base_list/base_get/base_table_*/base_field_*/base_view_*/base_record_*/base_import*/base_export* 操作多维表格',
           precise: 'insert_after 插到锚点下方；delete_range 删除指定段/节。必须提供 after/target 或 block_id。找不到锚点不会改文档，也不会改成 append/replace',
           auth: 'GET /auth/status 查看授权，GET /auth/start 开始授权',
           identity: '优先用户身份；用户授权失效时默认用应用身份兜底（响应带 identity=app / fallback=true / auth_url，并自动把 OWNER_OPEN_ID 加成可管理）；设 ALLOW_APP_FALLBACK=false 可关闭兜底',
@@ -194,7 +197,7 @@ const WRITE_ACTIONS = ['create', 'append', 'replace', 'delete', 'read'];
 const DISCOVERY_ACTIONS = ['search', 'list'];
 const BOARD_ACTIONS = ['board_create', 'board_update', 'board_read'];
 const PRECISE_ACTIONS = ['insert_after', 'delete_range'];
-const ALL_ACTIONS = [...WRITE_ACTIONS, ...DISCOVERY_ACTIONS, ...BOARD_ACTIONS, ...PRECISE_ACTIONS];
+const ALL_ACTIONS = [...WRITE_ACTIONS, ...DISCOVERY_ACTIONS, ...BOARD_ACTIONS, ...PRECISE_ACTIONS, ...BASE_ACTIONS];
 
 /**
  * 统一入口：校验参数 -> 执行 create / append / replace / delete / read / search / list / board_*
@@ -214,12 +217,13 @@ async function handleWrite(env, body = {}) {
 
   const isBoardAction = BOARD_ACTIONS.includes(action);
   const isDiscovery = DISCOVERY_ACTIONS.includes(action);
+  const isBaseAction = BASE_ACTIONS.includes(action);
 
   // format：文档写入用 markdown/html；画板写入用 mermaid/plantuml/svg/raw
   if (format === undefined || format === null) {
     format = isBoardAction ? 'mermaid' : 'markdown';
   }
-  if (!isBoardAction && !isDiscovery && format !== 'markdown' && format !== 'html') {
+  if (!isBoardAction && !isDiscovery && !isBaseAction && format !== 'markdown' && format !== 'html') {
     return { success: false, message: 'format 必须是 markdown / html 之一' };
   }
   if (isBoardAction && action !== 'board_read') {
@@ -278,6 +282,16 @@ async function handleWrite(env, body = {}) {
     docToken = tenantToken;
     convertToken = tenantToken;
     fallback = true;
+  }
+
+  if (isBaseAction) {
+    return await handleBaseAction(env, body, {
+      token: docToken, identity,
+      api: (path, options) => feishuFetch(env, path, options),
+      search: (options) => handleSearch(env, docToken, { ...options, identity }),
+      list: (options) => handleList(env, docToken, { ...options, identity }),
+      grant: (appToken, type) => grantOwnerPermission(env, docToken, appToken, type),
+    });
   }
 
   // ---- 搜索 / 列出文档 ----
@@ -449,6 +463,13 @@ const OAUTH_SCOPES = [
   'board:whiteboard:node:create',         // 创建画板节点
   'board:whiteboard:node:update',         // 更新画板节点
   'board:whiteboard:node:delete',         // 删除画板节点（覆盖写入前清空）
+  'base:app:create', 'base:app:read',      // 多维表格创建与读取
+  'base:table:create', 'base:table:read',
+  'base:field:create', 'base:field:read',
+  'base:view:write_only', 'base:view:read',
+  'base:record:create', 'base:record:read', 'base:record:update',
+  'docs:document.media:upload', 'docs:document:import', 'docs:document:export',
+  'docs:document.content:read', 'drive:drive.metadata:readonly',
 ].join(' ');
 
 /**
@@ -623,6 +644,10 @@ async function getAuthStatus(env) {
     has_docx_scope: scopes.includes('docx:document') || scopes.includes('docx:document:create') || scopes.includes('docx:document:write_only'),
     has_search_scope: scopes.includes('search:docs:read') || scopes.includes('drive:drive'),
     has_board_scope: scopes.includes('board:whiteboard:node:read') || scopes.includes('board:whiteboard:node:create'),
+    has_base_create_scope: scopes.includes('base:app:create') || scopes.includes('bitable:app'),
+    has_base_read_scope: scopes.includes('base:app:read') || scopes.includes('bitable:app:readonly') || scopes.includes('bitable:app'),
+    has_import_scope: scopes.includes('docs:document:import'),
+    has_export_scope: scopes.includes('docs:document:export'),
     scope_count: scopes.length,
     scope_preview: scopes.slice(0, 30).join(' '),
     hint: valid ? '身份有效' : raw.refresh_token && raw.refresh_expires_at > nowSec
@@ -725,10 +750,10 @@ async function requestTenantToken(env) {
  * 目的：即使文档归应用所有，用户也能改、能管、能挪，不再出现"只能读"。
  * 失败返回 { ok:false, error }，由调用方在响应里如实告知。
  */
-async function grantOwnerPermission(env, token, documentId) {
+async function grantOwnerPermission(env, token, documentId, type = 'docx') {
   const memberId = configuredOwnerOpenId(env);
   if (!memberId) return { ok: false, error: 'OWNER_OPEN_ID 未配置' };
-  const path = `/open-apis/drive/v1/permissions/${documentId}/members?type=docx&need_notification=false`;
+  const path = `/open-apis/drive/v1/permissions/${documentId}/members?type=${encodeURIComponent(type)}&need_notification=false`;
   const payload = { member_type: 'openid', member_id: memberId, perm: 'full_access', type: 'user' };
 
   const attempt = async () =>

@@ -42,6 +42,7 @@
 | 🎯 **定点编辑** | `insert_after` `delete_range` | 插到指定标题下方、删某段或某节。**找不到锚点会拒绝**，不会悄悄改成文末追加或整篇覆盖 |
 | 🔍 **查找** | `search` `list` | 按文档名搜索、列出云盘文件 |
 | 🖼️ **画板** | `board_create` `board_update` `board_read` | 用 Mermaid / PlantUML / SVG 画流程图、架构图、时序图 |
+| 📊 **多维表格** | `base_create` `base_list` `base_*` | 创建、查找和定位多维表格，管理数据表、字段、视图与记录，导入和导出文件。详见[功能说明与验收标准](docs/base-feature.md) |
 
 **排版能力**
 
@@ -188,7 +189,8 @@ npm run gen
 ```
 feishu-ai-writer/
 ├── worker/
-│   ├── worker.js            Worker 全部实现（单文件，零运行时依赖）
+│   ├── worker.js            Worker 主入口
+│   ├── base.js              多维表格功能
 │   ├── wrangler.toml        部署配置，KV id 需自己填
 │   └── package.json
 ├── skills/                  技能模板（含 {{占位符}}）
@@ -200,9 +202,11 @@ feishu-ai-writer/
 │   └── gen-skills.mjs       读 .env 生成 dist/skills/
 ├── docs/
 │   ├── feishu-setup.md      飞书应用配置全流程 + 错误码表
-│   └── permissions.json     权限批量导入 JSON
+│   ├── permissions.json     权限批量导入 JSON
+│   └── base-feature.md      多维表格使用说明与验收标准
 ├── test/
-│   └── test-smoke.mjs       冒烟测试（模拟飞书接口，不真调）129 个断言
+│   ├── test-smoke.mjs       原有功能测试（模拟飞书接口）129 个断言
+│   └── test-base.mjs        多维表格测试（模拟飞书接口）26 个断言
 └── .env.example
 ```
 
@@ -240,7 +244,9 @@ curl -X POST "https://你的Worker域名/" \
 
 </details>
 
-**完整字段说明**见任一 [`SKILL.md`](skills/claude/SKILL.md) —— 技能文件本身就是最全的接口文档。
+**原有文档操作的字段说明**见任一 [`SKILL.md`](skills/claude/SKILL.md)。
+
+**多维表格的 action、参数、导入导出流程和验收标准**见 [`docs/base-feature.md`](docs/base-feature.md)。
 
 **授权相关接口**
 

@@ -12,7 +12,23 @@
       "board:whiteboard:node:create",
       "board:whiteboard:node:update",
       "board:whiteboard:node:delete",
-      "docs:permission.member:create"
+      "docs:permission.member:create",
+      "base:app:create",
+      "base:app:read",
+      "base:table:create",
+      "base:table:read",
+      "base:field:create",
+      "base:field:read",
+      "base:view:write_only",
+      "base:view:read",
+      "base:record:create",
+      "base:record:read",
+      "base:record:update",
+      "docs:document.media:upload",
+      "docs:document:import",
+      "docs:document:export",
+      "docs:document.content:read",
+      "drive:drive.metadata:readonly"
     ],
     "user": [
       "offline_access",
@@ -27,7 +43,23 @@
       "board:whiteboard:node:create",
       "board:whiteboard:node:update",
       "board:whiteboard:node:delete",
-      "docs:permission.member:create"
+      "docs:permission.member:create",
+      "base:app:create",
+      "base:app:read",
+      "base:table:create",
+      "base:table:read",
+      "base:field:create",
+      "base:field:read",
+      "base:view:write_only",
+      "base:view:read",
+      "base:record:create",
+      "base:record:read",
+      "base:record:update",
+      "docs:document.media:upload",
+      "docs:document:import",
+      "docs:document:export",
+      "docs:document.content:read",
+      "drive:drive.metadata:readonly"
     ]
   }
 }
