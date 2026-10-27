@@ -467,7 +467,7 @@ const OAUTH_SCOPES = [
   'base:table:create', 'base:table:read',
   'base:field:create', 'base:field:read',
   'base:view:write_only', 'base:view:read',
-  'base:record:create', 'base:record:read', 'base:record:update',
+  'base:record:create', 'base:record:read', 'base:record:retrieve', 'base:record:update',
   'docs:document.media:upload', 'docs:document:import', 'docs:document:export',
   'docs:document.content:read', 'drive:drive.metadata:readonly',
 ].join(' ');
@@ -646,6 +646,7 @@ async function getAuthStatus(env) {
     has_board_scope: scopes.includes('board:whiteboard:node:read') || scopes.includes('board:whiteboard:node:create'),
     has_base_create_scope: scopes.includes('base:app:create') || scopes.includes('bitable:app'),
     has_base_read_scope: scopes.includes('base:app:read') || scopes.includes('bitable:app:readonly') || scopes.includes('bitable:app'),
+    has_base_record_search_scope: scopes.includes('base:record:retrieve') || scopes.includes('bitable:app:readonly') || scopes.includes('bitable:app'),
     has_import_scope: scopes.includes('docs:document:import'),
     has_export_scope: scopes.includes('docs:document:export'),
     scope_count: scopes.length,

@@ -26,7 +26,7 @@
 | `board:whiteboard:node:read` / `create` / `update` / `delete` | 画板读写与覆盖 |
 | `base:app:create` / `read` | 创建和查找多维表格 |
 | `base:table:create` / `read`、`base:field:create` / `read` | 创建与查看数据表和字段 |
-| `base:view:write_only` / `read`、`base:record:create` / `read` / `update` | 创建和查看视图，查询和写入记录 |
+| `base:view:write_only` / `read`、`base:record:create` / `read` / `retrieve` / `update` | 创建和查看视图，筛选查询和写入记录；筛选查询需要 `retrieve` |
 | `docs:document.media:upload`、`docs:document:import` | 上传 CSV、XLSX、`.base` 并导入多维表格 |
 | `docs:document:export`、`docs:document.content:read`、`drive:drive.metadata:readonly` | 导出并下载多维表格文件 |
 | `offline_access`（user） | 拿 refresh_token，免得天天重新授权 |

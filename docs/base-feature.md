@@ -59,7 +59,7 @@
 ## 授权与上线步骤
 
 1. 在飞书开发者后台找到此 Worker 使用的自建应用。将 [`permissions.json`](permissions.json) 中新增的多维表格、导入和导出权限开通给用户与应用身份。申请开通后发布新版本；如需管理员审核，等审核通过。
-2. 打开 Worker 的 `/auth/status`，检查 `has_base_create_scope`、`has_base_read_scope`、`has_import_scope`、`has_export_scope`。已有长期用户授权并不等于新权限自动进入旧令牌。新增权限生效后，用户打开 `/auth/start` 授权页面并同意。
+2. 打开 Worker 的 `/auth/status`，检查 `has_base_create_scope`、`has_base_read_scope`、`has_base_record_search_scope`、`has_import_scope`、`has_export_scope`。已有长期用户授权并不等于新权限自动进入旧令牌。新增权限生效后，用户打开 `/auth/start` 授权页面并同意。
 3. 运行本地测试：在 `GitHub发布` 目录执行 `node test/test-smoke.mjs` 与 `node test/test-base.mjs`。从项目根目录执行 `node_modules/.bin/wrangler.cmd deploy --dry-run`，确认打包成功。
 4. 将 `GitHub发布` 内的改动提交并推送到 GitHub。根目录的 `worker.js` 与发布目录版本仅导入路径不同；根目录部署配置使用真实 Cloudflare KV 标识，发布目录配置是模板。
 5. 从项目根目录运行 `node_modules/.bin/wrangler.cmd deploy`。上线后先检查 `GET /` 和 `/auth/status`，再在飞书中创建临时测试 Base，验证创建位置、字段、记录、查询、导出和导入。清理临时资源前核对归属和用途。
