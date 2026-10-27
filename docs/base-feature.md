@@ -6,6 +6,10 @@
 
 `base_create` 的 `folder_token` 不填时在调用身份的云盘根目录创建；填写时在指定云盘文件夹创建。响应的 `location` 明确显示位置。`base_list` 查找当前身份可见的多维表格；传 `with_location:true` 时附加云盘路径和上级文件夹标识。位置扫描最多遍历 200 项、3 层，超出时会返回 `location_warning`；知识库中的表格也可能没有可用的云盘路径，不能把“位置未查到”当成“表格不存在”。列表采用分页，`has_more=true` 时继续传 `page_token`。
 
+## 飞书多维表格通常能做什么
+
+多维表格可以在一个文件中放多张数据表；每张表由字段（列）和记录（行）组成。字段可表示文字、数字、日期、选项、人员、附件或表间关联。视图让同一批记录以不同筛选和展示方式呈现；飞书还提供表单收集、公式计算、统计图表、自动化流程和成员权限等能力。以上是飞书产品能力，并不表示本 Worker 已实现了每一项。本次 Worker 接入的是下面列出的核心操作；表单、仪表盘、自动化和高级权限仍使用飞书网页或其他专门工具。
+
 ## 支持的操作
 
 | 目标 | action | 主要参数 |
@@ -79,9 +83,18 @@
 
 本地测试使用模拟的飞书响应，只能证明请求格式与流程。真正的权限、导入转换、文件可打开性和创建位置，需要在飞书应用授权生效后做线上验收。
 
+## 本次实际验证记录（2026-10-27）
+
+- 本地：原有文档功能 129 项测试通过；新增多维表格 26 项测试通过；Cloudflare 打包检查通过。
+- 发布：GitHub 主分支已推送多维表格代码，当前修正提交为 `aae380b`；Cloudflare Worker 已部署，版本 `dedb479b-bece-4f45-b3bf-1c7475678dc6`。
+- 线上已通过：以用户身份查找可见多维表格；在云盘根目录创建测试多维表格；创建数据表、字段、视图和记录；导出 XLSX 并下载得到有效的压缩格式文件（最近一次 8123 字节）；导入 CSV 并取得新多维表格。每次测试产生的两份临时表格均已调用删除接口清理。
+- 线上待复验：按字段条件筛选记录。首次调用得到飞书 `99991679`，明确缺少用户权限 `base:record:retrieve`。用户已报告在开发者后台开通权限；截至此记录写入时，`/auth/status` 仍显示 `has_base_record_search_scope=false`。需完成 `/auth/start` 用户重新授权后复测。
+- 排查修复：导出任务首次创建成功，但状态查询返回 `99992402 field validation failed`。依据飞书官方 CLI 源码，状态查询还须带原多维表格标识；修正后线上导出和下载通过。
+
 ## 依据
 
 - [飞书官方：创建多维表格](https://open.feishu.cn/document/introduction-2?lang=zh-CN)
 - [飞书官方：新增记录](https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/create)
 - [飞书官方 CLI：导入格式、任务与位置](https://github.com/larksuite/cli/blob/main/skills/lark-drive/references/lark-drive-import.md)
 - [飞书官方 CLI：导出格式与任务](https://github.com/larksuite/cli/blob/main/skills/lark-drive/references/lark-drive-export.md)
+- [飞书官方 CLI 源码：导出任务状态查询参数](https://github.com/larksuite/cli/blob/main/shortcuts/drive/drive_export_common.go)
