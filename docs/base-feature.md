@@ -4,7 +4,7 @@
 
 本项目现有的文档写入接口增加了多维表格操作。调用方式仍是向 Worker 地址发送 `POST /`，请求体是 JSON，继续使用原有的 `x-api-key`。正常情况下以已授权的用户身份操作，因此新建的多维表格归该用户所有。用户授权失效且允许应用身份兜底时，返回 `identity=app`，并尝试把配置的用户加入为可管理成员；应检查 `permission_granted`。
 
-`base_create` 的 `folder_token` 不填时在调用身份的云盘根目录创建；填写时在指定云盘文件夹创建。响应的 `location` 明确显示位置。`base_list` 查找当前身份可见的多维表格；传 `with_location:true` 时附加云盘路径和上级文件夹标识。位置扫描最多遍历 200 项、3 层，超出时会返回 `location_warning`；知识库中的表格也可能没有可用的云盘路径，不能把“位置未查到”当成“表格不存在”。列表采用分页，`has_more=true` 时继续传 `page_token`。
+`base_create` 的 `folder_token` 不填时在调用身份的云盘根目录创建；填写时在指定云盘文件夹创建。响应的 `location` 明确显示位置。`base_list` 查找当前身份可见的多维表格；传 `with_location:true` 时附加云盘路径和上级文件夹标识。位置扫描最多遍历 1500 项、6 层、20 次接口调用，超出时会返回 `location_warning`；知识库或共享资源也可能没有可用的个人云盘路径，不能把“位置未查到”当成“表格不存在”。列表采用分页，`has_more=true` 时继续传 `page_token`。
 
 ## 飞书多维表格通常能做什么
 

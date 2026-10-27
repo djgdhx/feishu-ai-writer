@@ -93,13 +93,13 @@ export async function handleBaseAction(env, body, deps) {
       let locationWarning = '';
       if (body.with_location) {
         try {
-          const drive = await list({ recursive: true, page_size: 200, folder_token: body.folder_token || '' });
+          const drive = await list({ recursive: true, page_size: 200, folder_token: body.folder_token || '', max_calls: 20, max_items: 1500, max_depth: 6 });
           const paths = new Map((drive.items || []).map((item) => [item.token, item]));
           for (const item of items) {
             const match = paths.get(item.token);
             if (match) item.location = { path: match.path, parent_token: match.parent_token, source: 'drive' };
           }
-          if (drive.has_more) locationWarning = '文件夹扫描有分页或深度上限，部分位置未确认；可传 folder_token 缩小范围';
+          if (drive.has_more) locationWarning = '云盘目录扫描达到上限，部分位置未确认；可传 folder_token 缩小范围';
         } catch (error) { locationWarning = `部分文件夹位置无法读取：${error.message}`; }
       }
       return result(action, identity, { items, count: items.length, has_more: found.has_more, page_token: found.page_token, location_warning: locationWarning || undefined });

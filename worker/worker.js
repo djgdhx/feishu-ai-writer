@@ -1012,9 +1012,9 @@ async function handleList(env, token, opts) {
   const startFolder = opts.folder_token || '';
   const files = [];
   const queue = [{ folder_token: startFolder, depth: 0, path: '', page_token: opts.page_token || '' }];
-  const MAX_CALLS = recursive ? 8 : 1;
-  const MAX_ITEMS = recursive ? 200 : pageSize;
-  const MAX_DEPTH = 3;
+  const MAX_CALLS = recursive ? Math.min(30, Math.max(8, Number(opts.max_calls) || 8)) : 1;
+  const MAX_ITEMS = recursive ? Math.min(2000, Math.max(200, Number(opts.max_items) || 200)) : pageSize;
+  const MAX_DEPTH = recursive ? Math.min(8, Math.max(3, Number(opts.max_depth) || 3)) : 0;
   let calls = 0;
   let hasMore = false;
   let nextPageToken = '';
