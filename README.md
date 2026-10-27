@@ -206,7 +206,7 @@ feishu-ai-writer/
 │   └── base-feature.md      多维表格使用说明与验收标准
 ├── test/
 │   ├── test-smoke.mjs       原有功能测试（模拟飞书接口）129 个断言
-│   └── test-base.mjs        多维表格测试（模拟飞书接口）26 个断言
+│   └── test-base.mjs        多维表格测试（模拟飞书接口）27 个断言
 └── .env.example
 ```
 

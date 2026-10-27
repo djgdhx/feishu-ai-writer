@@ -95,11 +95,19 @@ export async function handleBaseAction(env, body, deps) {
         try {
           const drive = await list({ recursive: true, page_size: 200, folder_token: body.folder_token || '', max_calls: 20, max_items: 1500, max_depth: 6 });
           const paths = new Map((drive.items || []).map((item) => [item.token, item]));
+          let unresolved = 0;
           for (const item of items) {
             const match = paths.get(item.token);
-            if (match) item.location = { path: match.path, parent_token: match.parent_token, source: 'drive' };
+            if (match) {
+              item.location = { path: match.path, parent_token: match.parent_token, source: 'drive' };
+              item.location_status = 'found';
+            } else {
+              item.location_status = 'unresolved';
+              unresolved += 1;
+            }
           }
           if (drive.has_more) locationWarning = '云盘目录扫描达到上限，部分位置未确认；可传 folder_token 缩小范围';
+          else if (unresolved) locationWarning = `${unresolved} 个表格不在当前身份可列出的云盘目录中，可能位于知识库或共享空间；位置未确认`;
         } catch (error) { locationWarning = `部分文件夹位置无法读取：${error.message}`; }
       }
       return result(action, identity, { items, count: items.length, has_more: found.has_more, page_token: found.page_token, location_warning: locationWarning || undefined });

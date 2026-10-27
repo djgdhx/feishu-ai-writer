@@ -17,7 +17,10 @@ globalThis.fetch = async (url, init = {}) => {
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
   calls.push({ address, method, body, headers: init.headers || {} });
   if (address.endsWith('/bitable/v1/apps') && method === 'POST') return reply({ app: { app_token: 'bascn123', name: body.name, url: 'https://feishu.cn/base/bascn123' } });
-  if (address.endsWith('/search/v2/doc_wiki/search')) return reply({ res_units: [{ title: '测试台账', result_meta: { token: 'bascn123', doc_types: 'BITABLE' } }], has_more: false });
+  if (address.endsWith('/search/v2/doc_wiki/search')) return reply({ res_units: [
+    { title: '测试台账', result_meta: { token: 'bascn123', doc_types: 'BITABLE' } },
+    { title: '共享台账', result_meta: { token: 'bascn999', doc_types: 'BITABLE' } },
+  ], has_more: false });
   if (address.includes('/drive/v1/files?')) return reply({ files: [{ name: '测试台账', token: 'bascn123', type: 'bitable', parent_token: 'folder123' }], has_more: false });
   if (address.endsWith('/bitable/v1/apps/bascn123/tables') && method === 'POST') return reply({ table_id: 'tbl123', default_view_id: 'vew123' });
   if (address.endsWith('/bitable/v1/apps/bascn123/tables') && method === 'GET') return reply({ items: [{ table_id: 'tbl123', name: '客户' }], has_more: false });
@@ -53,8 +56,9 @@ verify(calls.at(-1).body.folder_token === 'folder123', '创建请求传入文件
 verify(calls.at(-1).headers.Authorization === 'Bearer user-token', '用户身份优先');
 
 out = await request('base_list', { with_location: true });
-verify(out.data.items.length === 1 && out.data.items[0].token === 'bascn123', '查找已有 Base');
+verify(out.data.items.length === 2 && out.data.items[0].token === 'bascn123', '查找已有 Base');
 verify(out.data.items[0].location.parent_token === 'folder123', '查询结果包含文件夹位置');
+verify(out.data.items[1].location_status === 'unresolved' && out.data.location_warning, '无法定位的表格明确标记');
 
 out = await request('base_table_create', { app_token: 'bascn123', name: '客户', fields: [{ field_name: '客户', type: 1 }] });
 verify(out.data.table_id === 'tbl123', '创建数据表');
