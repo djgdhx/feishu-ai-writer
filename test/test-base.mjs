@@ -16,6 +16,8 @@ globalThis.fetch = async (url, init = {}) => {
   const method = init.method || 'GET';
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
   calls.push({ address, method, body, headers: init.headers || {} });
+  if (method === 'DELETE' && address.endsWith('/tables/tbl123/records/rec123')) return reply({ record_id: 'rec123', deleted: true });
+  if (method === 'DELETE' && address.endsWith('/tables/tbl123')) return reply({ table_id: 'tbl123', deleted: true });
   if (address.endsWith('/bitable/v1/apps') && method === 'POST') return reply({ app: { app_token: 'bascn123', name: body.name, url: 'https://feishu.cn/base/bascn123' } });
   if (address.endsWith('/search/v2/doc_wiki/search')) return reply({ res_units: [
     { title: '测试台账', result_meta: { token: 'bascn123', doc_types: 'BITABLE' } },
@@ -104,4 +106,22 @@ verify(!out.data.success, '删除前必须明确确认标识');
 out = await request('base_create', { name: '未授权' }, 'wrong');
 verify(out.status === 401, 'API_KEY 鉴权继续生效');
 
+let countBefore = calls.length;
+out = await request('base_record_delete', { app_token: 'bascn123', table_id: 'tbl123', record_id: 'rec123' });
+verify(!out.data.success && calls.length === countBefore, '缺少确认标识时不发送删除记录请求');
+out = await request('base_table_delete', { app_token: 'bascn123', table_id: 'tbl123', confirm_table_id: 'tbl999' });
+verify(!out.data.success && calls.length === countBefore, '确认标识不匹配时不发送删除数据表请求');
+out = await request('base_record_delete', { app_token: 'bascn123', table_id: 'tbl123', record_id: 'bad/id', confirm_record_id: 'bad/id' });
+verify(!out.data.success && calls.length === countBefore, '非法记录标识不触发请求');
+out = await request('base_record_delete', { app_token: 'bascn123', table_id: 'tbl123', record_id: 'rec123', confirm_record_id: 'rec123' });
+verify(out.data.success && out.data.deleted && out.data.record_id === 'rec123', '删除单行成功');
+verify(calls.at(-1).method === 'DELETE' && calls.at(-1).address.endsWith('/tables/tbl123/records/rec123'), '只向指定记录发出 DELETE');
+out = await request('base_table_delete', { app_token: 'bascn123', table_id: 'tbl123', confirm_table_id: 'tbl123' });
+verify(out.data.success && out.data.deleted && out.data.table_id === 'tbl123', '删除内部数据表成功');
+verify(calls.at(-1).method === 'DELETE' && calls.at(-1).address.endsWith('/tables/tbl123'), '数据表删除不调用整份文件删除接口');
+const previousFetch = globalThis.fetch;
+globalThis.fetch = async () => new Response(JSON.stringify({ code: 99991679, msg: 'permission denied' }));
+out = await request('base_record_delete', { app_token: 'bascn123', table_id: 'tbl123', record_id: 'rec123', confirm_record_id: 'rec123' });
+verify(!out.data.success, '飞书拒绝删除时不能返回成功');
+globalThis.fetch = previousFetch;
 console.log(`多维表格测试：${checks} 项通过`);

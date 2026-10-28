@@ -55,6 +55,7 @@ paths:
                     - base_delete
                     - base_table_list
                     - base_table_create
+                    - base_table_delete
                     - base_field_list
                     - base_field_create
                     - base_view_list
@@ -63,6 +64,7 @@ paths:
                     - base_record_search
                     - base_record_create
                     - base_record_update
+                    - base_record_delete
                     - base_import
                     - base_import_status
                     - base_export
@@ -109,6 +111,12 @@ paths:
                 app_token:
                   type: string
                   description: 多维表格标识或完整链接
+                confirm_table_id:
+                  type: string
+                  description: base_table_delete 必须与 table_id 一致
+                confirm_record_id:
+                  type: string
+                  description: base_record_delete 必须与 record_id 一致
                 confirm_app_token:
                   type: string
                   description: base_delete 必须与 app_token 完全一致

@@ -3,6 +3,10 @@ name: feishu-doc-writer
 description: 调用 HTTP API 操作飞书在线文档与画板：新建/追加/替换/删除/读取文档，按名字搜索或列出云盘文档，以及创建/更新/读取画板（Mermaid/PlantUML/SVG）。当用户要把内容写入飞书、按文档名查找、列出云盘文件、读取文档，或画流程图/架构图画板时使用。这是工具技能，必须实际发送 HTTP 请求。
 ---
 
+## 删除记录与内部数据表
+
+删除单行用 `base_record_delete`，传 `app_token`、`table_id`、`record_id` 和相同的 `confirm_record_id`。删除内部数据表及其记录用 `base_table_delete`，传 `app_token`、`table_id` 和相同的 `confirm_table_id`。`base_delete` 删除整个多维表格文件。先查询核对用户指定的目标，不得混淆三种删除。新增权限为 `base:record:delete`、`base:table:delete`。
+
 # 飞书文档写入技能（HTTP 工具）
 
 本技能是一个 **HTTP 工具技能**：当用户要求操作飞书文档或画板时，**必须实际调用下面的接口**，不要只输出说明文字。

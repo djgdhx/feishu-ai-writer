@@ -14,6 +14,10 @@
 
 ## 支持的操作
 
+新增删除能力：`base_record_delete` 删除指定一行，参数为 `app_token`、`table_id`、`record_id`、`confirm_record_id`；`base_table_delete` 删除内部数据表及其记录，参数为 `app_token`、`table_id`、`confirm_table_id`。确认标识必须与目标标识完全一致。应用后台需新增 `base:record:delete` 和 `base:table:delete`（用户、应用两种身份），发布版本后重新 `/auth/start` 授权。可用 [delete-permissions.json](delete-permissions.json) 批量导入新增权限。
+
+本次新增删除功能已通过模拟测试（多维表格共 35 项、原功能 129 项），真实删除验收待新增权限开通后进行。没有删除用户已有记录或数据表。
+
 | 目标 | action | 主要参数 |
 |---|---|---|
 | 创建多维表格 | `base_create` | `name`、可选 `folder_token` |

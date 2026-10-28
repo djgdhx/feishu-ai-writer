@@ -1,5 +1,6 @@
 # ChatGPT — GPTs Actions 配置说明
 
+- 删除单行用 `base_record_delete`，传 `app_token`、`table_id`、`record_id` 和相同的 `confirm_record_id`。删除内部数据表及其记录用 `base_table_delete`，传 `app_token`、`table_id` 和相同的 `confirm_table_id`。`base_delete` 删除整个多维表格文件。先查询核对用户指定的目标，不得混淆三种删除。新增权限为 `base:record:delete`、`base:table:delete`。
 GPTs 的 Actions 用 OpenAPI 规范描述接口，让 ChatGPT 学会调用。本目录的 `openapi.yaml` 就是完整规范。
 
 > 先执行 `npm run gen`，用 `dist/skills/chatgpt/` 下已经填好地址和密钥的版本。

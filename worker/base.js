@@ -1,10 +1,10 @@
 // 飞书多维表格（Base）接口。所有操作沿用主 Worker 的身份选择与 API_KEY 鉴权。
 export const BASE_ACTIONS = [
   'base_create', 'base_list', 'base_get', 'base_delete',
-  'base_table_list', 'base_table_create',
+  'base_table_list', 'base_table_create', 'base_table_delete',
   'base_field_list', 'base_field_create',
   'base_view_list', 'base_view_create',
-  'base_record_list', 'base_record_search', 'base_record_create', 'base_record_update',
+  'base_record_list', 'base_record_search', 'base_record_create', 'base_record_update', 'base_record_delete',
   'base_import', 'base_import_status',
   'base_export', 'base_export_status', 'base_export_download',
 ];
@@ -201,6 +201,17 @@ export async function handleBaseAction(env, body, deps) {
     }
     if (!tableId) return invalid(`${action} 需要 table_id`);
     const table = tableRoot(appToken, tableId);
+    if (action === 'base_table_delete') {
+      if (body.confirm_table_id !== tableId) return invalid('删除数据表前，confirm_table_id 必须与 table_id 完全一致');
+      const response = await api(table, { method: 'DELETE', token });
+      return result(action, identity, { ...response.data, app_token: appToken, table_id: tableId });
+    }
+    if (action === 'base_record_delete') {
+      const recordId = tokenPart(body.record_id, 'record_id');
+      if (body.confirm_record_id !== body.record_id) return invalid('删除记录前，confirm_record_id 必须与 record_id 完全一致');
+      const response = await api(`${table}/records/${recordId}`, { method: 'DELETE', token });
+      return result(action, identity, { ...response.data, app_token: appToken, table_id: tableId, record_id: body.record_id });
+    }
     if (action === 'base_field_list' || action === 'base_view_list' || action === 'base_record_list') {
       const segment = action === 'base_field_list' ? 'fields' : action === 'base_view_list' ? 'views' : 'records';
       const response = await api(`${table}/${segment}${qs({ page_size: pageSize(body.page_size, action === 'base_record_list' ? 500 : 100), page_token: body.page_token, view_id: action === 'base_record_list' ? body.view_id : undefined })}`, { token });

@@ -1,0 +1,6 @@
+{
+  "scopes": {
+    "tenant": ["base:record:delete", "base:table:delete"],
+    "user": ["base:record:delete", "base:table:delete"]
+  }
+}

@@ -464,10 +464,10 @@ const OAUTH_SCOPES = [
   'board:whiteboard:node:update',         // 更新画板节点
   'board:whiteboard:node:delete',         // 删除画板节点（覆盖写入前清空）
   'base:app:create', 'base:app:read',      // 多维表格创建与读取
-  'base:table:create', 'base:table:read',
+  'base:table:create', 'base:table:read', 'base:table:delete',
   'base:field:create', 'base:field:read',
   'base:view:write_only', 'base:view:read',
-  'base:record:create', 'base:record:read', 'base:record:retrieve', 'base:record:update',
+  'base:record:create', 'base:record:read', 'base:record:retrieve', 'base:record:update', 'base:record:delete',
   'docs:document.media:upload', 'docs:document:import', 'docs:document:export',
   'docs:document.content:read', 'drive:drive.metadata:readonly',
 ].join(' ');
@@ -647,6 +647,8 @@ async function getAuthStatus(env) {
     has_base_create_scope: scopes.includes('base:app:create') || scopes.includes('bitable:app'),
     has_base_read_scope: scopes.includes('base:app:read') || scopes.includes('bitable:app:readonly') || scopes.includes('bitable:app'),
     has_base_record_search_scope: scopes.includes('base:record:retrieve') || scopes.includes('bitable:app:readonly') || scopes.includes('bitable:app'),
+    has_base_record_delete_scope: scopes.includes('base:record:delete') || scopes.includes('bitable:app'),
+    has_base_table_delete_scope: scopes.includes('base:table:delete') || scopes.includes('bitable:app'),
     has_import_scope: scopes.includes('docs:document:import'),
     has_export_scope: scopes.includes('docs:document:export'),
     scope_count: scopes.length,
